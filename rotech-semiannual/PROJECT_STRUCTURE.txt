@@ -1,0 +1,52 @@
+rotech-semiannual/
+├── index.html                                    # Main HTML entry point
+├── package.json                                  # Dependencies & scripts
+├── vite.config.js                                # Vite configuration (GitHub Pages base path)
+├── tailwind.config.js                            # Tailwind CSS config
+├── postcss.config.js                             # PostCSS config
+├── .gitignore                                    # Git ignore rules
+│
+├── src/
+│   ├── main.jsx                                  # React entry point
+│   ├── App.jsx                                   # Router & main app
+│   ├── App.css                                   # Component styles
+│   ├── index.css                                 # Tailwind directives
+│   │
+│   ├── lib/
+│   │   └── firebase.js                           # Firebase config (with your credentials)
+│   │
+│   ├── components/
+│   │   ├── Login.jsx                             # Login page (4 roles)
+│   │   │
+│   │   ├── forms/
+│   │   │   ├── OP541Form.jsx                     # Facility Readiness (~45 items)
+│   │   │   ├── OP512Form.jsx                     # Safety Inspection (32 items)
+│   │   │   └── JC427Form.jsx                     # Personnel Records (~30 items)
+│   │   │
+│   │   └── dashboards/
+│   │       └── LocationManagerDash.jsx           # Location Manager dashboard with form selection
+│
+└── SETUP & BUILD NOTES
+   - npm install                    # Install all dependencies
+   - npm run dev                    # Run locally (http://localhost:5173)
+   - npm run build                  # Build for production
+   - npm run deploy                 # Deploy to GitHub Pages
+
+KEY FEATURES IMPLEMENTED:
+✅ Firebase Authentication (Email/Password with 4 role types)
+✅ OP 541 Facility Readiness Form (45 items, progress tracking, validation)
+✅ OP 512 Safety Inspection Form (32 items, validation)
+✅ JC 427 Personnel Records Form (30 items, organized by section)
+✅ Location Manager Dashboard (status overview, form selection, Survey Prep link)
+✅ Firestore integration (assessments saved with timestamps & audit trail)
+✅ Auto-save & draft functionality
+✅ Mobile-responsive design (Tailwind CSS)
+✅ Role-based access control (routing for 4 roles)
+✅ GitHub Pages deployment ready (base path configured)
+
+NEXT PHASE (Phase 2):
+- Area Manager Dashboard (view all locations in area, submission status)
+- Region Admin Dashboard (company-wide rollup, metrics, export reports)
+- Accreditation Specialist Dashboard (full read/write access)
+- Location/User management imports
+- Trend analysis & scoring
