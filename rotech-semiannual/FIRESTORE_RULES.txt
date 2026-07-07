@@ -1,0 +1,92 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper function to check user role
+    function getUserRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    // Helper function to check user location
+    function getUserLocationId() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.locationId;
+    }
+
+    // ========== USERS COLLECTION ==========
+    match /users/{userId} {
+      // Only the user can read their own profile
+      allow read: if request.auth.uid == userId;
+      
+      // Users can update their own profile
+      allow update: if request.auth.uid == userId;
+      
+      // Admins can read all users
+      allow read: if getUserRole() in ['regionAdmin', 'accreditationSpecialist'];
+      
+      // Only admins can write users
+      allow write: if getUserRole() in ['regionAdmin', 'accreditationSpecialist'];
+    }
+
+    // ========== LOCATIONS COLLECTION ==========
+    match /locations/{locationId} {
+      // All authenticated users can read locations
+      allow read: if request.auth != null;
+      
+      // Only admins can write locations
+      allow write: if getUserRole() in ['regionAdmin', 'accreditationSpecialist'];
+    }
+
+    // ========== ASSESSMENTS COLLECTION ==========
+    match /assessments/{assessmentId} {
+      // Location Managers can read/write only their location
+      allow read, write: if 
+        request.auth != null && 
+        getUserRole() == 'locationManager' &&
+        resource.data.locationId == getUserLocationId();
+
+      // Area Managers can read assessments for their area locations
+      allow read: if 
+        request.auth != null && 
+        getUserRole() == 'areaManager' &&
+        get(/databases/$(database)/documents/locations/$(resource.data.locationId)).data.areaId == 
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.areaId;
+
+      // Region Admins can read all assessments in their region
+      allow read: if 
+        request.auth != null && 
+        getUserRole() == 'regionAdmin' &&
+        get(/databases/$(database)/documents/locations/$(resource.data.locationId)).data.regionId == 
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.regionId;
+
+      // Accreditation Specialists have full read/write access
+      allow read, write: if 
+        request.auth != null && 
+        getUserRole() == 'accreditationSpecialist';
+
+      // Only the location manager or accreditation specialist can write
+      allow write: if 
+        request.auth != null && 
+        (
+          getUserRole() == 'accreditationSpecialist' ||
+          (getUserRole() == 'locationManager' && resource.data.locationId == getUserLocationId())
+        );
+    }
+
+    // ========== AREA_MANAGERS COLLECTION ==========
+    match /area_managers/{docId} {
+      allow read: if request.auth != null;
+      allow write: if getUserRole() in ['regionAdmin', 'accreditationSpecialist'];
+    }
+
+    // ========== REGION_ADMINS COLLECTION ==========
+    match /region_admins/{docId} {
+      allow read: if request.auth != null;
+      allow write: if getUserRole() == 'accreditationSpecialist';
+    }
+
+    // ========== CATCH ALL ==========
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
