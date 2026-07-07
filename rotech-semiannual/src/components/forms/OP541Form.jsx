@@ -430,10 +430,25 @@ export default function OP541Form({ locationId, quarter, onSubmitSuccess }) {
         <p className="text-gray-600 mb-4">{quarter} Assessment | Location: {locationId}</p>
 
         {/* Warning Banner */}
-        <div className="bg-red-50 border-l-4 border-red-500 rounded-lg p-4 mb-4">
+        <div className="bg-yellow-50 border-l-4 border-yellow-500 rounded-lg p-4 mb-4 text-center">
           {WARNING_BANNER_LINES.map((line) => (
-            <p key={line} className="text-sm font-semibold text-red-800">⚠ {line}</p>
+            <p key={line} className="text-sm font-semibold text-yellow-800">{line}</p>
           ))}
+        </div>
+
+        {/* Forms Location Banner */}
+        <div className="bg-blue-50 border-l-4 border-blue-500 rounded-lg p-4 mb-4 text-center">
+          <p className="text-sm font-semibold text-blue-800">
+            All forms can be found on the Rotech Homepage under Forms —{' '}
+            <a
+              href="https://dome.rotech.com/trees/?app=forms"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline hover:text-blue-900"
+            >
+              https://dome.rotech.com/trees/?app=forms
+            </a>
+          </p>
         </div>
 
         {/* Progress Bar */}

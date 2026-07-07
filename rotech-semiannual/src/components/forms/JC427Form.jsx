@@ -337,9 +337,9 @@ export default function JC427Form({ locationId, quarter, onSubmitSuccess }) {
         </div>
 
         {/* Warning Banner */}
-        <div className="bg-red-50 border-l-4 border-red-500 rounded-lg p-4 mb-4">
-          <p className="text-sm font-semibold text-red-800">⚠ ALL employees MUST have a Personnel File and a SEPARATE Medical File.</p>
-          <p className="text-sm font-semibold text-red-800">Employees transfilling or curbside filling liquid oxygen MUST have a SEPARATE FDA File.</p>
+        <div className="bg-yellow-50 border-l-4 border-yellow-500 rounded-lg p-4 mb-4 text-center">
+          <p className="text-sm font-semibold text-yellow-800">ALL employees MUST have a Personnel File and a SEPARATE Medical File.</p>
+          <p className="text-sm font-semibold text-yellow-800">Employees transfilling or curbside filling liquid oxygen MUST have a SEPARATE FDA File.</p>
         </div>
 
         {/* Progress Bar */}

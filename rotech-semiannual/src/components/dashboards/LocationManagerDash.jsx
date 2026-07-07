@@ -84,10 +84,6 @@ export default function LocationManagerDash() {
     }
   };
 
-  const handleAccessSurveyPrep = () => {
-    window.open('https://clandtroop.github.io/rotech-survey-prep/', '_blank');
-  };
-
   const handleFormSubmitSuccess = () => {
     // Reload submissions after successful submit
     const timer = setTimeout(() => {
@@ -135,12 +131,6 @@ export default function LocationManagerDash() {
             <p className="text-gray-600 mt-1">Location Manager Dashboard</p>
           </div>
           <div className="flex gap-4">
-            <button
-              onClick={handleAccessSurveyPrep}
-              className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition"
-            >
-              📋 Access Survey Prep App
-            </button>
             <button
               onClick={handleSignOut}
               className="bg-gray-300 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-400 transition"
