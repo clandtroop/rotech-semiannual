@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
-import { auth, db } from '../lib/firebase';
+import { auth, db } from '../../lib/firebase';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { signOut } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
-import OP541Form from './forms/OP541Form';
-import OP512Form from './forms/OP512Form';
-import JC427Form from './forms/JC427Form';
+import OP541Form from '../forms/OP541Form';
+import OP512Form from '../forms/OP512Form';
+import JC427Form from '../forms/JC427Form';
 
 export default function LocationManagerDash() {
   const [user, setUser] = useState(null);

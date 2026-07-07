@@ -5,6 +5,7 @@ import Login from './components/Login';
 import LocationManagerDash from './components/dashboards/LocationManagerDash';
 import AreaManagerDash from './components/dashboards/AreaManagerDash';
 import RegionAdminDash from './components/dashboards/RegionAdminDash';
+import AccreditationSpecialistDash from './components/dashboards/AccreditationSpecialistDash';
 import './App.css';
 
 function ProtectedRoute({ children }) {
@@ -63,18 +64,13 @@ function App() {
             </ProtectedRoute>
           } 
         />
-        <Route 
-          path="/accreditation" 
+        <Route
+          path="/accreditation"
           element={
             <ProtectedRoute>
-              <div className="min-h-screen bg-gray-50 p-4">
-                <div className="max-w-2xl mx-auto bg-white rounded-lg shadow p-6">
-                  <h1 className="text-2xl font-bold text-gray-800">Accreditation Specialist Dashboard</h1>
-                  <p className="text-gray-600 mt-2">Full read/write access to all locations and regions - Coming in Phase 2...</p>
-                </div>
-              </div>
+              <AccreditationSpecialistDash />
             </ProtectedRoute>
-          } 
+          }
         />
       </Routes>
     </Router>

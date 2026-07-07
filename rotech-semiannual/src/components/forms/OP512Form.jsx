@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { db } from '../lib/firebase';
+import { db } from '../../lib/firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
 const OP512_ITEMS = [
