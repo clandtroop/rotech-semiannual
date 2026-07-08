@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { auth, db } from '../../lib/firebase';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { signOut } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 import { exportWorkbook } from '../../utils/exportToExcel';
+import RecordEditModal from '../RecordEditModal';
 
 const QUARTERS = ['Q1-Q2 2026', 'Q3-Q4 2026'];
 
@@ -16,7 +17,29 @@ export default function AccreditationSpecialistDash() {
   const [regionFilter, setRegionFilter] = useState('all');
   const [areaFilter, setAreaFilter] = useState('all');
   const [loading, setLoading] = useState(true);
+  const [editModal, setEditModal] = useState(null); // { recordType, mode, initialData }
   const navigate = useNavigate();
+
+  const fetchRegions = async () => {
+    const snap = await getDocs(collection(db, 'regions'));
+    const arr = [];
+    snap.forEach(d => arr.push({ id: d.id, ...d.data() }));
+    return arr;
+  };
+
+  const fetchAreaManagers = async () => {
+    const snap = await getDocs(collection(db, 'area_managers'));
+    const arr = [];
+    snap.forEach(d => arr.push({ id: d.id, ...d.data() }));
+    return arr;
+  };
+
+  const fetchLocations = async () => {
+    const snap = await getDocs(collection(db, 'locations'));
+    const arr = [];
+    snap.forEach(d => arr.push({ id: d.id, ...d.data() }));
+    return arr;
+  };
 
   useEffect(() => {
     const loadData = async () => {
@@ -27,23 +50,9 @@ export default function AccreditationSpecialistDash() {
           return;
         }
 
-        // Get all regions
-        const regionSnapshot = await getDocs(collection(db, 'regions'));
-        const regs = [];
-        regionSnapshot.forEach(doc => regs.push({ id: doc.id, ...doc.data() }));
-        setRegions(regs);
-
-        // Get all area managers
-        const amSnapshot = await getDocs(collection(db, 'area_managers'));
-        const ams = [];
-        amSnapshot.forEach(doc => ams.push({ id: doc.id, ...doc.data() }));
-        setAreaManagers(ams);
-
-        // Get all locations
-        const locSnapshot = await getDocs(collection(db, 'locations'));
-        const locs = [];
-        locSnapshot.forEach(doc => locs.push({ id: doc.id, ...doc.data() }));
-        setLocations(locs);
+        setRegions(await fetchRegions());
+        setAreaManagers(await fetchAreaManagers());
+        setLocations(await fetchLocations());
 
         // Get all submissions for every quarter, bucketed - powers both the
         // current-quarter tables and the Trend Analysis comparison below.
@@ -66,6 +75,56 @@ export default function AccreditationSpecialistDash() {
   }, [navigate]);
 
   const submissions = submissionsByQuarter[quarter] || {};
+
+  const handleSaveRegion = async (data) => {
+    const { regionId, name, directorName, directorEmail } = data;
+    await setDoc(doc(db, 'regions', regionId), { name, directorName, directorEmail });
+    setRegions(await fetchRegions());
+    setEditModal(null);
+  };
+
+  const handleDeleteRegion = async (region) => {
+    const hasAreaManagers = areaManagers.some(am => am.regionId === region.id);
+    const hasLocations = locations.some(loc => loc.regionId === region.id);
+    if (hasAreaManagers || hasLocations) {
+      alert(`Cannot delete ${region.name}: it still has ${hasAreaManagers ? 'area managers' : 'locations'} assigned to it. Reassign or delete those first.`);
+      return;
+    }
+    if (!window.confirm(`Delete region ${region.name}? This cannot be undone.`)) return;
+    await deleteDoc(doc(db, 'regions', region.id));
+    setRegions(await fetchRegions());
+  };
+
+  const handleSaveAreaManager = async (data) => {
+    const { regionId, areaId, name, email, phone } = data;
+    await setDoc(doc(db, 'area_managers', `${regionId}_${areaId}`), { regionId, areaId, name, email, phone: phone || '' });
+    setAreaManagers(await fetchAreaManagers());
+    setEditModal(null);
+  };
+
+  const handleDeleteAreaManager = async (am) => {
+    const hasLocations = locations.some(loc => loc.regionId === am.regionId && loc.areaId === am.areaId);
+    if (hasLocations) {
+      alert(`Cannot delete ${am.name}: locations are still assigned to ${am.areaId}. Reassign those locations first.`);
+      return;
+    }
+    if (!window.confirm(`Delete area manager ${am.name} (${am.areaId})? This cannot be undone.`)) return;
+    await deleteDoc(doc(db, 'area_managers', am.id));
+    setAreaManagers(await fetchAreaManagers());
+  };
+
+  const handleSaveLocation = async (data) => {
+    const { lawsonNumber, name, city, state, regionId, areaId } = data;
+    await setDoc(doc(db, 'locations', lawsonNumber), { lawsonNumber, name, city, state, regionId, areaId });
+    setLocations(await fetchLocations());
+    setEditModal(null);
+  };
+
+  const handleDeleteLocation = async (location) => {
+    if (!window.confirm(`Delete location ${location.name} (Lawson #${location.lawsonNumber})? This cannot be undone.`)) return;
+    await deleteDoc(doc(db, 'locations', location.id));
+    setLocations(await fetchLocations());
+  };
 
   const handleSignOut = async () => {
     try {
@@ -330,8 +389,15 @@ export default function AccreditationSpecialistDash() {
 
         {/* Region Summary */}
         <div className="bg-white rounded-lg shadow mb-8">
-          <div className="px-6 py-4 border-b border-gray-200">
+          <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
             <h2 className="text-lg font-bold text-gray-800">Region Summary</h2>
+            <button
+              type="button"
+              onClick={() => setEditModal({ recordType: 'region', mode: 'add', initialData: {} })}
+              className="text-sm bg-blue-900 text-white px-3 py-1.5 rounded-lg hover:bg-blue-800 transition"
+            >
+              + Add Region
+            </button>
           </div>
 
           {regions.length === 0 ? (
@@ -350,6 +416,7 @@ export default function AccreditationSpecialistDash() {
                     <th className="px-6 py-3 text-center text-sm font-semibold text-gray-700">Partial</th>
                     <th className="px-6 py-3 text-center text-sm font-semibold text-gray-700">Pending</th>
                     <th className="px-6 py-3 text-center text-sm font-semibold text-gray-700">Completion %</th>
+                    <th className="px-6 py-3 text-center text-sm font-semibold text-gray-700">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -377,6 +444,104 @@ export default function AccreditationSpecialistDash() {
                               />
                             </div>
                             <span className="ml-2 text-sm font-semibold text-gray-700">{pct}%</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          <div className="flex items-center justify-center gap-3">
+                            <button
+                              type="button"
+                              onClick={() => setEditModal({ recordType: 'region', mode: 'edit', initialData: { regionId: region.id, name: region.name, directorName: region.directorName, directorEmail: region.directorEmail } })}
+                              className="text-blue-700 hover:underline text-sm font-medium"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteRegion(region)}
+                              className="text-red-600 hover:underline text-sm font-medium"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* Area Manager Summary */}
+        <div className="bg-white rounded-lg shadow mb-8">
+          <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+            <h2 className="text-lg font-bold text-gray-800">Area Manager Summary</h2>
+            <button
+              type="button"
+              onClick={() => setEditModal({ recordType: 'areaManager', mode: 'add', initialData: {} })}
+              className="text-sm bg-blue-900 text-white px-3 py-1.5 rounded-lg hover:bg-blue-800 transition"
+            >
+              + Add Area Manager
+            </button>
+          </div>
+
+          {areaManagers.length === 0 ? (
+            <div className="p-6 text-center text-gray-600">
+              No area managers found.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-100 border-b">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">Region / Area</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">Area Manager</th>
+                    <th className="px-6 py-3 text-center text-sm font-semibold text-gray-700">Locations</th>
+                    <th className="px-6 py-3 text-center text-sm font-semibold text-gray-700">Completion %</th>
+                    <th className="px-6 py-3 text-center text-sm font-semibold text-gray-700">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {areaManagers.map((am) => {
+                    const status = getAreaStatus(am.regionId, am.areaId);
+                    const pct = status.total > 0 ? Math.round((status.complete / status.total) * 100) : 0;
+
+                    return (
+                      <tr key={am.id} className="border-b hover:bg-gray-50">
+                        <td className="px-6 py-4 text-sm text-gray-600">{am.regionId} / {am.areaId}</td>
+                        <td className="px-6 py-4">
+                          <div className="text-sm font-medium text-gray-900">{am.name}</div>
+                          <div className="text-sm text-gray-600">{am.email}</div>
+                        </td>
+                        <td className="px-6 py-4 text-center font-semibold text-gray-900">{status.total}</td>
+                        <td className="px-6 py-4 text-center">
+                          <div className="flex items-center justify-center">
+                            <div className="w-16 bg-gray-200 rounded-full h-2">
+                              <div
+                                className="bg-blue-600 h-2 rounded-full"
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                            <span className="ml-2 text-sm font-semibold text-gray-700">{pct}%</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          <div className="flex items-center justify-center gap-3">
+                            <button
+                              type="button"
+                              onClick={() => setEditModal({ recordType: 'areaManager', mode: 'edit', initialData: { regionId: am.regionId, areaId: am.areaId, name: am.name, email: am.email, phone: am.phone } })}
+                              className="text-blue-700 hover:underline text-sm font-medium"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteAreaManager(am)}
+                              className="text-red-600 hover:underline text-sm font-medium"
+                            >
+                              Delete
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -453,9 +618,18 @@ export default function AccreditationSpecialistDash() {
 
         {/* All Locations Detail */}
         <div className="bg-white rounded-lg shadow overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+          <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center gap-4">
             <h2 className="text-lg font-bold text-gray-800">Location Detail</h2>
-            <span className="text-sm text-gray-600">{filteredLocations.length} location{filteredLocations.length === 1 ? '' : 's'}</span>
+            <div className="flex items-center gap-4">
+              <span className="text-sm text-gray-600">{filteredLocations.length} location{filteredLocations.length === 1 ? '' : 's'}</span>
+              <button
+                type="button"
+                onClick={() => setEditModal({ recordType: 'location', mode: 'add', initialData: {} })}
+                className="text-sm bg-blue-900 text-white px-3 py-1.5 rounded-lg hover:bg-blue-800 transition whitespace-nowrap"
+              >
+                + Add Location
+              </button>
+            </div>
           </div>
 
           {filteredLocations.length === 0 ? (
@@ -475,6 +649,7 @@ export default function AccreditationSpecialistDash() {
                     <th className="px-6 py-3 text-center text-sm font-semibold text-gray-700">OP 512</th>
                     <th className="px-6 py-3 text-center text-sm font-semibold text-gray-700">JC 427</th>
                     <th className="px-6 py-3 text-center text-sm font-semibold text-gray-700">Status</th>
+                    <th className="px-6 py-3 text-center text-sm font-semibold text-gray-700">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -517,6 +692,24 @@ export default function AccreditationSpecialistDash() {
                             {statusBadge.label}
                           </span>
                         </td>
+                        <td className="px-6 py-4 text-center">
+                          <div className="flex items-center justify-center gap-3">
+                            <button
+                              type="button"
+                              onClick={() => setEditModal({ recordType: 'location', mode: 'edit', initialData: { lawsonNumber: location.lawsonNumber, name: location.name, city: location.city, state: location.state, regionId: location.regionId, areaId: location.areaId } })}
+                              className="text-blue-700 hover:underline text-sm font-medium"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteLocation(location)}
+                              className="text-red-600 hover:underline text-sm font-medium"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </td>
                       </tr>
                     );
                   })}
@@ -534,13 +727,25 @@ export default function AccreditationSpecialistDash() {
               <span className="text-blue-600 mr-3 font-bold">→</span>
               <span><strong>Deficiency Tracking:</strong> Log and track corrective actions by location</span>
             </li>
-            <li className="flex items-start">
-              <span className="text-blue-600 mr-3 font-bold">→</span>
-              <span><strong>Edit Access:</strong> Direct edit of location, area manager, and region records</span>
-            </li>
           </ul>
         </div>
       </div>
+
+      {editModal && (
+        <RecordEditModal
+          recordType={editModal.recordType}
+          mode={editModal.mode}
+          initialData={editModal.initialData}
+          regions={regions}
+          areaManagers={areaManagers}
+          onClose={() => setEditModal(null)}
+          onSave={
+            editModal.recordType === 'region' ? handleSaveRegion
+            : editModal.recordType === 'areaManager' ? handleSaveAreaManager
+            : handleSaveLocation
+          }
+        />
+      )}
     </div>
   );
 }
