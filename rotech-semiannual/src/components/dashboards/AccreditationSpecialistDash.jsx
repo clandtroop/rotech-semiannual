@@ -5,11 +5,13 @@ import { signOut } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 import { exportWorkbook } from '../../utils/exportToExcel';
 
+const QUARTERS = ['Q1-Q2 2026', 'Q3-Q4 2026'];
+
 export default function AccreditationSpecialistDash() {
   const [regions, setRegions] = useState([]);
   const [areaManagers, setAreaManagers] = useState([]);
   const [locations, setLocations] = useState([]);
-  const [submissions, setSubmissions] = useState({});
+  const [submissionsByQuarter, setSubmissionsByQuarter] = useState({});
   const [quarter, setQuarter] = useState('Q1-Q2 2026');
   const [regionFilter, setRegionFilter] = useState('all');
   const [areaFilter, setAreaFilter] = useState('all');
@@ -43,19 +45,16 @@ export default function AccreditationSpecialistDash() {
         locSnapshot.forEach(doc => locs.push({ id: doc.id, ...doc.data() }));
         setLocations(locs);
 
-        // Get all submissions for this quarter
-        const subQuery = query(
-          collection(db, 'assessments'),
-          where('quarter', '==', quarter)
-        );
-        const subSnapshot = await getDocs(subQuery);
-        const submissionsMap = {};
+        // Get all submissions for every quarter, bucketed - powers both the
+        // current-quarter tables and the Trend Analysis comparison below.
+        const subSnapshot = await getDocs(collection(db, 'assessments'));
+        const byQuarter = {};
         subSnapshot.forEach(doc => {
           const data = doc.data();
           const key = `${data.locationId}_${data.assessmentType}`;
-          submissionsMap[key] = data;
+          (byQuarter[data.quarter] ??= {})[key] = data;
         });
-        setSubmissions(submissionsMap);
+        setSubmissionsByQuarter(byQuarter);
       } catch (error) {
         console.error('Error loading data:', error);
       } finally {
@@ -64,7 +63,9 @@ export default function AccreditationSpecialistDash() {
     };
 
     loadData();
-  }, [navigate, quarter]);
+  }, [navigate]);
+
+  const submissions = submissionsByQuarter[quarter] || {};
 
   const handleSignOut = async () => {
     try {
@@ -75,10 +76,10 @@ export default function AccreditationSpecialistDash() {
     }
   };
 
-  const getLocationStatus = (locationId) => {
-    const op541 = submissions[`${locationId}_OP541`];
-    const op512 = submissions[`${locationId}_OP512`];
-    const jc427 = submissions[`${locationId}_JC427`];
+  const getLocationStatus = (locationId, subs = submissions) => {
+    const op541 = subs[`${locationId}_OP541`];
+    const op512 = subs[`${locationId}_OP512`];
+    const jc427 = subs[`${locationId}_JC427`];
 
     if (op541 && op512 && jc427) return 'complete';
     if (op541 || op512 || jc427) return 'partial';
@@ -93,13 +94,13 @@ export default function AccreditationSpecialistDash() {
     }
   };
 
-  const getRegionStatus = (regionId) => {
+  const getRegionStatus = (regionId, subs = submissions) => {
     const regionLocs = locations.filter(loc => loc.regionId === regionId);
     if (regionLocs.length === 0) return { complete: 0, partial: 0, pending: 0, total: 0 };
 
     let complete = 0, partial = 0, pending = 0;
     regionLocs.forEach(loc => {
-      const status = getLocationStatus(loc.id);
+      const status = getLocationStatus(loc.id, subs);
       if (status === 'complete') complete++;
       else if (status === 'partial') partial++;
       else pending++;
@@ -108,19 +109,25 @@ export default function AccreditationSpecialistDash() {
     return { complete, partial, pending, total: regionLocs.length };
   };
 
-  const getAreaStatus = (regionId, areaId) => {
+  const getAreaStatus = (regionId, areaId, subs = submissions) => {
     const areaLocs = locations.filter(loc => loc.regionId === regionId && loc.areaId === areaId);
     if (areaLocs.length === 0) return { complete: 0, partial: 0, pending: 0, total: 0 };
 
     let complete = 0, partial = 0, pending = 0;
     areaLocs.forEach(loc => {
-      const status = getLocationStatus(loc.id);
+      const status = getLocationStatus(loc.id, subs);
       if (status === 'complete') complete++;
       else if (status === 'partial') partial++;
       else pending++;
     });
 
     return { complete, partial, pending, total: areaLocs.length };
+  };
+
+  const getOverallCompletionPct = (subs) => {
+    if (locations.length === 0) return 0;
+    const complete = locations.filter(loc => getLocationStatus(loc.id, subs) === 'complete').length;
+    return Math.round((complete / locations.length) * 100);
   };
 
   if (loading) {
@@ -154,6 +161,23 @@ export default function AccreditationSpecialistDash() {
     if (regionFilter !== 'all' && loc.regionId !== regionFilter) return false;
     if (areaFilter !== 'all' && `${loc.regionId}_${loc.areaId}` !== areaFilter) return false;
     return true;
+  });
+
+  // Trend Analysis: always compares the full company across both quarters,
+  // independent of the region/area filter above.
+  const trendOverall = QUARTERS.map(q => ({
+    quarter: q,
+    pct: getOverallCompletionPct(submissionsByQuarter[q] || {}),
+  }));
+  const trendOverallDelta = trendOverall[1].pct - trendOverall[0].pct;
+
+  const trendByRegion = regions.map(region => {
+    const byQuarter = QUARTERS.map(q => {
+      const status = getRegionStatus(region.id, submissionsByQuarter[q] || {});
+      const pct = status.total > 0 ? Math.round((status.complete / status.total) * 100) : 0;
+      return { quarter: q, pct };
+    });
+    return { region, byQuarter, delta: byQuarter[1].pct - byQuarter[0].pct };
   });
 
   const handleExportToExcel = async () => {
@@ -205,11 +229,19 @@ export default function AccreditationSpecialistDash() {
       };
     });
 
+    const trendRows = trendByRegion.map(({ region, byQuarter, delta }) => ({
+      Region: region.name,
+      [`${QUARTERS[0]} %`]: byQuarter[0].pct,
+      [`${QUARTERS[1]} %`]: byQuarter[1].pct,
+      Delta: delta,
+    }));
+
     await exportWorkbook(
       [
         { name: 'Region Summary', rows: regionRows },
         { name: 'Area Summary', rows: areaRows },
         { name: 'Location Detail', rows: locationRows },
+        { name: 'Trend Analysis', rows: trendRows },
       ],
       `Rotech_Accreditation_Report_${quarter.replace(/\s+/g, '_')}.xlsx`
     );
@@ -356,6 +388,69 @@ export default function AccreditationSpecialistDash() {
           )}
         </div>
 
+        {/* Trend Analysis */}
+        <div className="bg-white rounded-lg shadow mb-8">
+          <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center flex-wrap gap-2">
+            <h2 className="text-lg font-bold text-gray-800">Trend Analysis: {QUARTERS[0]} vs {QUARTERS[1]}</h2>
+            <div className="flex items-center gap-4 text-sm text-gray-600">
+              <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm bg-blue-600" /> {QUARTERS[0]}</span>
+              <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm bg-indigo-600" /> {QUARTERS[1]}</span>
+            </div>
+          </div>
+
+          <div className="p-6">
+            {/* Headline */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+              <div className="bg-blue-50 rounded-lg p-4 border-l-4 border-blue-600">
+                <p className="text-sm text-gray-600">{QUARTERS[0]} Completion</p>
+                <p className="text-3xl font-bold text-blue-700">{trendOverall[0].pct}%</p>
+              </div>
+              <div className="bg-indigo-50 rounded-lg p-4 border-l-4 border-indigo-600">
+                <p className="text-sm text-gray-600">{QUARTERS[1]} Completion</p>
+                <p className="text-3xl font-bold text-indigo-700">{trendOverall[1].pct}%</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-4 border-l-4 border-gray-400 flex flex-col justify-center">
+                <p className="text-sm text-gray-600">Company-wide Change</p>
+                <p className={`text-3xl font-bold ${trendOverallDelta >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                  {trendOverallDelta >= 0 ? '▲' : '▼'} {Math.abs(trendOverallDelta)} pts
+                </p>
+              </div>
+            </div>
+
+            {/* Per-region rows */}
+            {regions.length === 0 ? (
+              <p className="text-center text-gray-600">No regions found.</p>
+            ) : (
+              <div className="space-y-4">
+                {trendByRegion.map(({ region, byQuarter, delta }) => (
+                  <div key={region.id} className="border border-gray-200 rounded-lg p-4">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="font-medium text-gray-900">{region.name}</span>
+                      <span className={`text-sm font-semibold ${delta >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                        {delta >= 0 ? '▲' : '▼'} {Math.abs(delta)} pts
+                      </span>
+                    </div>
+                    <div className="space-y-1">
+                      {byQuarter.map(({ quarter: q, pct }, i) => (
+                        <div key={q} className="flex items-center gap-2">
+                          <span className="w-24 text-xs text-gray-500 flex-shrink-0">{q}</span>
+                          <div className="flex-1 bg-gray-200 rounded-full h-3">
+                            <div
+                              className={`h-3 rounded-full ${i === 0 ? 'bg-blue-600' : 'bg-indigo-600'}`}
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                          <span className="w-12 text-xs font-semibold text-gray-700 text-right">{pct}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* All Locations Detail */}
         <div className="bg-white rounded-lg shadow overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
@@ -438,10 +533,6 @@ export default function AccreditationSpecialistDash() {
             <li className="flex items-start">
               <span className="text-blue-600 mr-3 font-bold">→</span>
               <span><strong>Deficiency Tracking:</strong> Log and track corrective actions by location</span>
-            </li>
-            <li className="flex items-start">
-              <span className="text-blue-600 mr-3 font-bold">→</span>
-              <span><strong>Trend Analysis:</strong> Historical comparisons and readiness scoring</span>
             </li>
             <li className="flex items-start">
               <span className="text-blue-600 mr-3 font-bold">→</span>
