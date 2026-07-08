@@ -5,6 +5,7 @@ import { signOut } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 import { exportWorkbook } from '../../utils/exportToExcel';
 import RecordEditModal from '../RecordEditModal';
+import CommentThread from '../CommentThread';
 
 const QUARTERS = ['Q1-Q2 2026', 'Q3-Q4 2026'];
 
@@ -13,6 +14,8 @@ export default function AccreditationSpecialistDash() {
   const [areaManagers, setAreaManagers] = useState([]);
   const [locations, setLocations] = useState([]);
   const [submissionsByQuarter, setSubmissionsByQuarter] = useState({});
+  const [commentCounts, setCommentCounts] = useState({});
+  const [activeThread, setActiveThread] = useState(null);
   const [quarter, setQuarter] = useState('Q1-Q2 2026');
   const [regionFilter, setRegionFilter] = useState('all');
   const [areaFilter, setAreaFilter] = useState('all');
@@ -61,9 +64,18 @@ export default function AccreditationSpecialistDash() {
         subSnapshot.forEach(doc => {
           const data = doc.data();
           const key = `${data.locationId}_${data.assessmentType}`;
-          (byQuarter[data.quarter] ??= {})[key] = data;
+          (byQuarter[data.quarter] ??= {})[key] = { id: doc.id, ...data };
         });
         setSubmissionsByQuarter(byQuarter);
+
+        // Get comment counts for every submission
+        const commentsSnapshot = await getDocs(collection(db, 'submission_comments'));
+        const counts = {};
+        commentsSnapshot.forEach(doc => {
+          const { assessmentId } = doc.data();
+          counts[assessmentId] = (counts[assessmentId] || 0) + 1;
+        });
+        setCommentCounts(counts);
       } catch (error) {
         console.error('Error loading data:', error);
       } finally {
@@ -297,10 +309,18 @@ export default function AccreditationSpecialistDash() {
 
     await exportWorkbook(
       [
-        { name: 'Region Summary', rows: regionRows },
-        { name: 'Area Summary', rows: areaRows },
-        { name: 'Location Detail', rows: locationRows },
-        { name: 'Trend Analysis', rows: trendRows },
+        { name: 'Region Summary', rows: regionRows, columnTypes: { 'Completion %': 'percent' } },
+        { name: 'Area Summary', rows: areaRows, columnTypes: { 'Completion %': 'percent' } },
+        {
+          name: 'Location Detail',
+          rows: locationRows,
+          columnTypes: { 'OP 541': 'submitted', 'OP 512': 'submitted', 'JC 427': 'submitted', Status: 'status' },
+        },
+        {
+          name: 'Trend Analysis',
+          rows: trendRows,
+          columnTypes: { [`${QUARTERS[0]} %`]: 'percent', [`${QUARTERS[1]} %`]: 'percent', Delta: 'delta' },
+        },
       ],
       `Rotech_Accreditation_Report_${quarter.replace(/\s+/g, '_')}.xlsx`
     );
@@ -668,21 +688,39 @@ export default function AccreditationSpecialistDash() {
                         <td className="px-6 py-4 text-sm text-gray-600">{location.regionId} / {location.areaId}</td>
                         <td className="px-6 py-4 text-center">
                           {op541 ? (
-                            <span className="inline-block bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-semibold">✓</span>
+                            <button
+                              type="button"
+                              onClick={() => setActiveThread({ assessmentId: op541.id, locationId: location.id, assessmentType: 'OP541', locationName: location.name })}
+                              className="inline-block bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-semibold hover:bg-green-200"
+                            >
+                              💬 {commentCounts[op541.id] || 0}
+                            </button>
                           ) : (
                             <span className="inline-block bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs font-semibold">—</span>
                           )}
                         </td>
                         <td className="px-6 py-4 text-center">
                           {op512 ? (
-                            <span className="inline-block bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-semibold">✓</span>
+                            <button
+                              type="button"
+                              onClick={() => setActiveThread({ assessmentId: op512.id, locationId: location.id, assessmentType: 'OP512', locationName: location.name })}
+                              className="inline-block bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-semibold hover:bg-green-200"
+                            >
+                              💬 {commentCounts[op512.id] || 0}
+                            </button>
                           ) : (
                             <span className="inline-block bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs font-semibold">—</span>
                           )}
                         </td>
                         <td className="px-6 py-4 text-center">
                           {jc427 ? (
-                            <span className="inline-block bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-semibold">✓</span>
+                            <button
+                              type="button"
+                              onClick={() => setActiveThread({ assessmentId: jc427.id, locationId: location.id, assessmentType: 'JC427', locationName: location.name })}
+                              className="inline-block bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-semibold hover:bg-green-200"
+                            >
+                              💬 {commentCounts[jc427.id] || 0}
+                            </button>
                           ) : (
                             <span className="inline-block bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs font-semibold">—</span>
                           )}
@@ -744,6 +782,20 @@ export default function AccreditationSpecialistDash() {
             : editModal.recordType === 'areaManager' ? handleSaveAreaManager
             : handleSaveLocation
           }
+        />
+      )}
+
+      {activeThread && (
+        <CommentThread
+          assessmentId={activeThread.assessmentId}
+          locationId={activeThread.locationId}
+          assessmentType={activeThread.assessmentType}
+          quarter={quarter}
+          locationName={activeThread.locationName}
+          currentUserEmail={auth.currentUser?.email}
+          currentUserRole="accreditationSpecialist"
+          onClose={() => setActiveThread(null)}
+          onCountChange={(assessmentId, newCount) => setCommentCounts(prev => ({ ...prev, [assessmentId]: newCount }))}
         />
       )}
     </div>

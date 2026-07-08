@@ -6,12 +6,15 @@ import { useNavigate } from 'react-router-dom';
 import OP541Form from '../forms/OP541Form';
 import OP512Form from '../forms/OP512Form';
 import JC427Form from '../forms/JC427Form';
+import CommentThread from '../CommentThread';
 
 export default function LocationManagerDash() {
   const [user, setUser] = useState(null);
   const [locationData, setLocationData] = useState(null);
   const [selectedForm, setSelectedForm] = useState(null);
   const [submissions, setSubmissions] = useState({});
+  const [commentCounts, setCommentCounts] = useState({});
+  const [activeThread, setActiveThread] = useState(null); // assessmentType string
   const [quarter, setQuarter] = useState('Q1-Q2 2026');
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
@@ -64,6 +67,20 @@ export default function LocationManagerDash() {
           };
         });
         setSubmissions(submissionsMap);
+
+        // Get comment counts for this location's submissions this quarter
+        const commentsQuery = query(
+          collection(db, 'submission_comments'),
+          where('locationId', '==', userData.locationId),
+          where('quarter', '==', quarter)
+        );
+        const commentsSnapshot = await getDocs(commentsQuery);
+        const counts = {};
+        commentsSnapshot.forEach(doc => {
+          const { assessmentType } = doc.data();
+          counts[assessmentType] = (counts[assessmentType] || 0) + 1;
+        });
+        setCommentCounts(counts);
       } catch (error) {
         console.error('Error loading data:', error);
         alert('Error loading location data. Please refresh the page.');
@@ -189,9 +206,18 @@ export default function LocationManagerDash() {
                 </span>
               </div>
               {submissions.OP541 && (
-                <p className="text-xs text-gray-600 mt-2">
-                  Submitted: {new Date(submissions.OP541.submittedAt?.toDate?.()).toLocaleDateString()}
-                </p>
+                <>
+                  <p className="text-xs text-gray-600 mt-2">
+                    Submitted: {new Date(submissions.OP541.submittedAt?.toDate?.()).toLocaleDateString()}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setActiveThread('OP541')}
+                    className="text-xs text-blue-700 font-medium hover:underline mt-1"
+                  >
+                    💬 View Comments ({commentCounts.OP541 || 0})
+                  </button>
+                </>
               )}
             </div>
 
@@ -215,9 +241,18 @@ export default function LocationManagerDash() {
                 </span>
               </div>
               {submissions.OP512 && (
-                <p className="text-xs text-gray-600 mt-2">
-                  Submitted: {new Date(submissions.OP512.submittedAt?.toDate?.()).toLocaleDateString()}
-                </p>
+                <>
+                  <p className="text-xs text-gray-600 mt-2">
+                    Submitted: {new Date(submissions.OP512.submittedAt?.toDate?.()).toLocaleDateString()}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setActiveThread('OP512')}
+                    className="text-xs text-blue-700 font-medium hover:underline mt-1"
+                  >
+                    💬 View Comments ({commentCounts.OP512 || 0})
+                  </button>
+                </>
               )}
             </div>
 
@@ -241,9 +276,18 @@ export default function LocationManagerDash() {
                 </span>
               </div>
               {submissions.JC427 && (
-                <p className="text-xs text-gray-600 mt-2">
-                  Submitted: {new Date(submissions.JC427.submittedAt?.toDate?.()).toLocaleDateString()}
-                </p>
+                <>
+                  <p className="text-xs text-gray-600 mt-2">
+                    Submitted: {new Date(submissions.JC427.submittedAt?.toDate?.()).toLocaleDateString()}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setActiveThread('JC427')}
+                    className="text-xs text-blue-700 font-medium hover:underline mt-1"
+                  >
+                    💬 View Comments ({commentCounts.JC427 || 0})
+                  </button>
+                </>
               )}
             </div>
           </div>
@@ -345,6 +389,20 @@ export default function LocationManagerDash() {
           </div>
         )}
       </div>
+
+      {activeThread && submissions[activeThread] && (
+        <CommentThread
+          assessmentId={submissions[activeThread].id}
+          locationId={locationData.lawsonNumber}
+          assessmentType={activeThread}
+          quarter={quarter}
+          locationName={locationData.name}
+          currentUserEmail={user?.email}
+          currentUserRole="locationManager"
+          onClose={() => setActiveThread(null)}
+          onCountChange={(assessmentId, newCount) => setCommentCounts(prev => ({ ...prev, [activeThread]: newCount }))}
+        />
+      )}
     </div>
   );
 }

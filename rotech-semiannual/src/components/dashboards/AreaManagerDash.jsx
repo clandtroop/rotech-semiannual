@@ -3,12 +3,15 @@ import { auth, db } from '../../lib/firebase';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { signOut } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
+import CommentThread from '../CommentThread';
 
 export default function AreaManagerDash() {
   const [user, setUser] = useState(null);
   const [areaData, setAreaData] = useState(null);
   const [locations, setLocations] = useState([]);
   const [submissions, setSubmissions] = useState({});
+  const [commentCounts, setCommentCounts] = useState({});
+  const [activeThread, setActiveThread] = useState(null);
   const [quarter, setQuarter] = useState('Q1-Q2 2026');
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
@@ -60,9 +63,22 @@ export default function AreaManagerDash() {
         subSnapshot.forEach(doc => {
           const data = doc.data();
           const key = `${data.locationId}_${data.assessmentType}`;
-          submissionsMap[key] = data;
+          submissionsMap[key] = { id: doc.id, ...data };
         });
         setSubmissions(submissionsMap);
+
+        // Get comment counts for this quarter's submissions
+        const commentsQuery = query(
+          collection(db, 'submission_comments'),
+          where('quarter', '==', quarter)
+        );
+        const commentsSnapshot = await getDocs(commentsQuery);
+        const counts = {};
+        commentsSnapshot.forEach(doc => {
+          const { assessmentId } = doc.data();
+          counts[assessmentId] = (counts[assessmentId] || 0) + 1;
+        });
+        setCommentCounts(counts);
       } catch (error) {
         console.error('Error loading data:', error);
       } finally {
@@ -216,21 +232,39 @@ export default function AreaManagerDash() {
                         <td className="px-6 py-4 text-sm text-gray-600">{location.city}, {location.state}</td>
                         <td className="px-6 py-4 text-center">
                           {op541 ? (
-                            <span className="inline-block bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-semibold">✓</span>
+                            <button
+                              type="button"
+                              onClick={() => setActiveThread({ assessmentId: op541.id, locationId: location.id, assessmentType: 'OP541', locationName: location.name })}
+                              className="inline-block bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-semibold hover:bg-green-200"
+                            >
+                              💬 {commentCounts[op541.id] || 0}
+                            </button>
                           ) : (
                             <span className="inline-block bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs font-semibold">—</span>
                           )}
                         </td>
                         <td className="px-6 py-4 text-center">
                           {op512 ? (
-                            <span className="inline-block bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-semibold">✓</span>
+                            <button
+                              type="button"
+                              onClick={() => setActiveThread({ assessmentId: op512.id, locationId: location.id, assessmentType: 'OP512', locationName: location.name })}
+                              className="inline-block bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-semibold hover:bg-green-200"
+                            >
+                              💬 {commentCounts[op512.id] || 0}
+                            </button>
                           ) : (
                             <span className="inline-block bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs font-semibold">—</span>
                           )}
                         </td>
                         <td className="px-6 py-4 text-center">
                           {jc427 ? (
-                            <span className="inline-block bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-semibold">✓</span>
+                            <button
+                              type="button"
+                              onClick={() => setActiveThread({ assessmentId: jc427.id, locationId: location.id, assessmentType: 'JC427', locationName: location.name })}
+                              className="inline-block bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-semibold hover:bg-green-200"
+                            >
+                              💬 {commentCounts[jc427.id] || 0}
+                            </button>
                           ) : (
                             <span className="inline-block bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs font-semibold">—</span>
                           )}
@@ -256,10 +290,23 @@ export default function AreaManagerDash() {
             <li>Detailed submission review & analytics</li>
             <li>Trends & historical comparisons</li>
             <li>Export reports by location</li>
-            <li>Comment/feedback system for submissions</li>
           </ul>
         </div>
       </div>
+
+      {activeThread && (
+        <CommentThread
+          assessmentId={activeThread.assessmentId}
+          locationId={activeThread.locationId}
+          assessmentType={activeThread.assessmentType}
+          quarter={quarter}
+          locationName={activeThread.locationName}
+          currentUserEmail={user?.email}
+          currentUserRole="areaManager"
+          onClose={() => setActiveThread(null)}
+          onCountChange={(assessmentId, newCount) => setCommentCounts(prev => ({ ...prev, [assessmentId]: newCount }))}
+        />
+      )}
     </div>
   );
 }
