@@ -3,6 +3,7 @@ import { auth, db } from '../../lib/firebase';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { signOut } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
+import { exportWorkbook } from '../../utils/exportToExcel';
 
 export default function RegionAdminDash() {
   const [user, setUser] = useState(null);
@@ -95,22 +96,25 @@ export default function RegionAdminDash() {
     }
   };
 
-  const handleExportToExcel = () => {
-    alert('Export to Excel feature coming in Phase 2. Data will include:\n\n✓ All location submissions by area\n✓ Completion metrics\n✓ Trends & historical data\n✓ Deficiency tracking');
+  const getLocationStatus = (locationId) => {
+    const op541 = submissions[`${locationId}_OP541`];
+    const op512 = submissions[`${locationId}_OP512`];
+    const jc427 = submissions[`${locationId}_JC427`];
+
+    if (op541 && op512 && jc427) return 'complete';
+    if (op541 || op512 || jc427) return 'partial';
+    return 'pending';
   };
 
   const getAreaStatus = (areaId) => {
     const areaLocs = locations.filter(loc => loc.areaId === areaId);
     if (areaLocs.length === 0) return { complete: 0, partial: 0, pending: 0, total: 0 };
-    
+
     let complete = 0, partial = 0, pending = 0;
     areaLocs.forEach(loc => {
-      const op541 = submissions[`${loc.id}_OP541`];
-      const op512 = submissions[`${loc.id}_OP512`];
-      const jc427 = submissions[`${loc.id}_JC427`];
-      
-      if (op541 && op512 && jc427) complete++;
-      else if (op541 || op512 || jc427) partial++;
+      const status = getLocationStatus(loc.id);
+      if (status === 'complete') complete++;
+      else if (status === 'partial') partial++;
       else pending++;
     });
 
@@ -152,6 +156,47 @@ export default function RegionAdminDash() {
   });
 
   const completionRate = totalLocations > 0 ? Math.round(((totalComplete) / totalLocations) * 100) : 0;
+
+  const handleExportToExcel = async () => {
+    const areaRows = areaManagers.map((am) => {
+      const status = getAreaStatus(am.areaId);
+      const pct = status.total > 0 ? Math.round((status.complete / status.total) * 100) : 0;
+      return {
+        'Area Manager': am.name,
+        Email: am.email,
+        'Total Locations': status.total,
+        Complete: status.complete,
+        Partial: status.partial,
+        Pending: status.pending,
+        'Completion %': pct,
+      };
+    });
+
+    const locationRows = locations.map((location) => {
+      const status = getLocationStatus(location.id);
+      return {
+        Location: location.name,
+        'Lawson #': location.lawsonNumber,
+        City: location.city,
+        State: location.state,
+        Area: location.areaId,
+        'OP 541': submissions[`${location.id}_OP541`] ? 'Submitted' : 'Not Submitted',
+        'OP 512': submissions[`${location.id}_OP512`] ? 'Submitted' : 'Not Submitted',
+        'JC 427': submissions[`${location.id}_JC427`] ? 'Submitted' : 'Not Submitted',
+        Status: status,
+        Quarter: quarter,
+      };
+    });
+
+    const regionLabel = (regionData?.name || 'Region').replace(/\s+/g, '_');
+    await exportWorkbook(
+      [
+        { name: 'Area Summary', rows: areaRows },
+        { name: 'Location Detail', rows: locationRows },
+      ],
+      `Rotech_${regionLabel}_Report_${quarter.replace(/\s+/g, '_')}.xlsx`
+    );
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -274,10 +319,6 @@ export default function RegionAdminDash() {
         <div className="bg-blue-50 rounded-lg border border-blue-200 p-6">
           <h3 className="text-lg font-bold text-blue-900 mb-4">Phase 2 Enhancements</h3>
           <ul className="space-y-2 text-gray-700">
-            <li className="flex items-start">
-              <span className="text-blue-600 mr-3 font-bold">→</span>
-              <span><strong>Export Reports:</strong> Download submission data and trend analysis in Excel format</span>
-            </li>
             <li className="flex items-start">
               <span className="text-blue-600 mr-3 font-bold">→</span>
               <span><strong>Deficiency Tracking:</strong> Log and track corrective actions by location</span>

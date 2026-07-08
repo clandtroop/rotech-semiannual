@@ -3,6 +3,7 @@ import { auth, db } from '../../lib/firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { signOut } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
+import { exportWorkbook } from '../../utils/exportToExcel';
 
 export default function AccreditationSpecialistDash() {
   const [regions, setRegions] = useState([]);
@@ -74,10 +75,6 @@ export default function AccreditationSpecialistDash() {
     }
   };
 
-  const handleExportToExcel = () => {
-    alert('Export to Excel feature coming in Phase 2. Data will include:\n\n✓ All location submissions by region\n✓ Completion metrics\n✓ Trends & historical data\n✓ Deficiency tracking');
-  };
-
   const getLocationStatus = (locationId) => {
     const op541 = submissions[`${locationId}_OP541`];
     const op512 = submissions[`${locationId}_OP512`];
@@ -109,6 +106,21 @@ export default function AccreditationSpecialistDash() {
     });
 
     return { complete, partial, pending, total: regionLocs.length };
+  };
+
+  const getAreaStatus = (regionId, areaId) => {
+    const areaLocs = locations.filter(loc => loc.regionId === regionId && loc.areaId === areaId);
+    if (areaLocs.length === 0) return { complete: 0, partial: 0, pending: 0, total: 0 };
+
+    let complete = 0, partial = 0, pending = 0;
+    areaLocs.forEach(loc => {
+      const status = getLocationStatus(loc.id);
+      if (status === 'complete') complete++;
+      else if (status === 'partial') partial++;
+      else pending++;
+    });
+
+    return { complete, partial, pending, total: areaLocs.length };
   };
 
   if (loading) {
@@ -143,6 +155,65 @@ export default function AccreditationSpecialistDash() {
     if (areaFilter !== 'all' && `${loc.regionId}_${loc.areaId}` !== areaFilter) return false;
     return true;
   });
+
+  const handleExportToExcel = async () => {
+    const regionRows = regions.map((region) => {
+      const status = getRegionStatus(region.id);
+      const pct = status.total > 0 ? Math.round((status.complete / status.total) * 100) : 0;
+      return {
+        Region: region.name,
+        Director: region.directorName,
+        'Director Email': region.directorEmail,
+        'Total Locations': status.total,
+        Complete: status.complete,
+        Partial: status.partial,
+        Pending: status.pending,
+        'Completion %': pct,
+      };
+    });
+
+    const areaRows = areaManagers.map((am) => {
+      const status = getAreaStatus(am.regionId, am.areaId);
+      const pct = status.total > 0 ? Math.round((status.complete / status.total) * 100) : 0;
+      return {
+        Region: am.regionId,
+        Area: am.areaId,
+        'Area Manager': am.name,
+        Email: am.email,
+        'Total Locations': status.total,
+        Complete: status.complete,
+        Partial: status.partial,
+        Pending: status.pending,
+        'Completion %': pct,
+      };
+    });
+
+    const locationRows = filteredLocations.map((location) => {
+      const status = getLocationStatus(location.id);
+      return {
+        Location: location.name,
+        'Lawson #': location.lawsonNumber,
+        City: location.city,
+        State: location.state,
+        Region: location.regionId,
+        Area: location.areaId,
+        'OP 541': submissions[`${location.id}_OP541`] ? 'Submitted' : 'Not Submitted',
+        'OP 512': submissions[`${location.id}_OP512`] ? 'Submitted' : 'Not Submitted',
+        'JC 427': submissions[`${location.id}_JC427`] ? 'Submitted' : 'Not Submitted',
+        Status: status,
+        Quarter: quarter,
+      };
+    });
+
+    await exportWorkbook(
+      [
+        { name: 'Region Summary', rows: regionRows },
+        { name: 'Area Summary', rows: areaRows },
+        { name: 'Location Detail', rows: locationRows },
+      ],
+      `Rotech_Accreditation_Report_${quarter.replace(/\s+/g, '_')}.xlsx`
+    );
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -364,10 +435,6 @@ export default function AccreditationSpecialistDash() {
         <div className="bg-blue-50 rounded-lg border border-blue-200 p-6 mt-8">
           <h3 className="text-lg font-bold text-blue-900 mb-4">Phase 2 Enhancements</h3>
           <ul className="space-y-2 text-gray-700">
-            <li className="flex items-start">
-              <span className="text-blue-600 mr-3 font-bold">→</span>
-              <span><strong>Export Reports:</strong> Download submission data and trend analysis in Excel format</span>
-            </li>
             <li className="flex items-start">
               <span className="text-blue-600 mr-3 font-bold">→</span>
               <span><strong>Deficiency Tracking:</strong> Log and track corrective actions by location</span>
