@@ -1,13 +1,21 @@
 import { useState, useEffect } from 'react';
 import { auth, db } from '../../lib/firebase';
-import { collection, query, where, getDocs, doc, setDoc, deleteDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { signOut } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 import { exportWorkbook } from '../../utils/exportToExcel';
 import RecordEditModal from '../RecordEditModal';
 import CommentThread from '../CommentThread';
+import InviteUserModal from '../InviteUserModal';
 
 const QUARTERS = ['Q1-Q2 2026', 'Q3-Q4 2026'];
+const INVITE_ROLES = ['locationManager', 'areaManager', 'regionAdmin', 'accreditationSpecialist'];
+const INVITE_ROLE_LABELS = {
+  locationManager: 'Location Manager',
+  areaManager: 'Area Manager',
+  regionAdmin: 'Region Admin',
+  accreditationSpecialist: 'Accreditation Specialist',
+};
 
 export default function AccreditationSpecialistDash() {
   const [regions, setRegions] = useState([]);
@@ -16,6 +24,8 @@ export default function AccreditationSpecialistDash() {
   const [submissionsByQuarter, setSubmissionsByQuarter] = useState({});
   const [commentCounts, setCommentCounts] = useState({});
   const [activeThread, setActiveThread] = useState(null);
+  const [invites, setInvites] = useState([]);
+  const [showInviteModal, setShowInviteModal] = useState(false);
   const [quarter, setQuarter] = useState('Q1-Q2 2026');
   const [regionFilter, setRegionFilter] = useState('all');
   const [areaFilter, setAreaFilter] = useState('all');
@@ -28,6 +38,13 @@ export default function AccreditationSpecialistDash() {
     const arr = [];
     snap.forEach(d => arr.push({ id: d.id, ...d.data() }));
     return arr;
+  };
+
+  const fetchInvites = async () => {
+    const snap = await getDocs(collection(db, 'invites'));
+    const arr = [];
+    snap.forEach(d => arr.push({ id: d.id, ...d.data() }));
+    return arr.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
   };
 
   const fetchAreaManagers = async () => {
@@ -76,6 +93,7 @@ export default function AccreditationSpecialistDash() {
           counts[assessmentId] = (counts[assessmentId] || 0) + 1;
         });
         setCommentCounts(counts);
+        setInvites(await fetchInvites());
       } catch (error) {
         console.error('Error loading data:', error);
       } finally {
@@ -85,6 +103,12 @@ export default function AccreditationSpecialistDash() {
 
     loadData();
   }, [navigate]);
+
+  const handleRevokeInvite = async (invite) => {
+    if (!window.confirm(`Revoke the invite for ${invite.email}?`)) return;
+    await updateDoc(doc(db, 'invites', invite.id), { status: 'revoked' });
+    setInvites(await fetchInvites());
+  };
 
   const submissions = submissionsByQuarter[quarter] || {};
 
@@ -337,6 +361,12 @@ export default function AccreditationSpecialistDash() {
           </div>
           <div className="flex gap-4">
             <button
+              onClick={() => setShowInviteModal(true)}
+              className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition"
+            >
+              ✉️ Invite User
+            </button>
+            <button
               onClick={handleExportToExcel}
               className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition"
             >
@@ -406,6 +436,49 @@ export default function AccreditationSpecialistDash() {
             ))}
           </select>
         </div>
+
+        {/* Pending Invites */}
+        {invites.filter(i => i.status === 'pending').length > 0 && (
+          <div className="bg-white rounded-lg shadow mb-8">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h2 className="text-lg font-bold text-gray-800">Pending Invites</h2>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-100 border-b">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">Email</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">Role</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">Scope</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">Invited By</th>
+                    <th className="px-6 py-3 text-center text-sm font-semibold text-gray-700">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {invites.filter(i => i.status === 'pending').map((invite) => (
+                    <tr key={invite.id} className="border-b hover:bg-gray-50">
+                      <td className="px-6 py-4 text-sm text-gray-900">{invite.email}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{INVITE_ROLE_LABELS[invite.role] || invite.role}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">
+                        {[invite.regionId, invite.areaId, invite.locationId].filter(Boolean).join(' / ') || '—'}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{invite.invitedByEmail}</td>
+                      <td className="px-6 py-4 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleRevokeInvite(invite)}
+                          className="text-red-600 hover:underline text-sm font-medium"
+                        >
+                          Revoke
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         {/* Region Summary */}
         <div className="bg-white rounded-lg shadow mb-8">
@@ -796,6 +869,20 @@ export default function AccreditationSpecialistDash() {
           currentUserRole="accreditationSpecialist"
           onClose={() => setActiveThread(null)}
           onCountChange={(assessmentId, newCount) => setCommentCounts(prev => ({ ...prev, [assessmentId]: newCount }))}
+        />
+      )}
+
+      {showInviteModal && (
+        <InviteUserModal
+          inviterUid={auth.currentUser?.uid}
+          inviterEmail={auth.currentUser?.email}
+          inviterRole="accreditationSpecialist"
+          availableRoles={INVITE_ROLES}
+          regions={regions}
+          areaManagers={areaManagers}
+          locations={locations}
+          onClose={() => setShowInviteModal(false)}
+          onCreated={(newInvite) => setInvites(prev => [newInvite, ...prev])}
         />
       )}
     </div>

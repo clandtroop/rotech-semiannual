@@ -1,0 +1,144 @@
+rules_version = '2';
+
+// Rotech Location Readiness Platform — Firestore security rules
+//
+// Design notes (see repo discussion / TODO for full context):
+// - Deny by default. All reads require an authenticated user.
+// - True per-region READ isolation on `assessments` / `submission_comments` is intentionally
+//   NOT implemented here: neither collection carries a regionId/areaId field, and several
+//   dashboards already do full unfiltered collection reads that would break under a naive
+//   region-restricted read rule. Closing that gap requires a data-model change (denormalizing
+//   region/area onto every assessment/comment doc) and is tracked separately, not attempted here.
+// - What this DOES enforce server-side: authentication is required for every read, and writes
+//   are restricted to the role that is actually supposed to perform them client-side today —
+//   turning today's UI-only checks into real, unbypassable rules.
+// - Account creation is invite-gated: a `users/{uid}` doc can only be created if it references a
+//   matching, still-pending `invites/{token}` doc (checked via a single get()).
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function myData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function myRole() {
+      return myData().role;
+    }
+
+    function isAccreditationSpecialist() {
+      return isSignedIn() && myRole() == 'accreditationSpecialist';
+    }
+
+    function isRegionAdminForRegion(regionId) {
+      return isSignedIn() && myRole() == 'regionAdmin' && myData().regionId == regionId;
+    }
+
+    function isValidRole(role) {
+      return role in ['locationManager', 'areaManager', 'regionAdmin', 'accreditationSpecialist'];
+    }
+
+    // Cross-checks a users/{uid} create against the invite it claims to come from.
+    function inviteAuthorizes(inviteToken, data) {
+      let invite = get(/databases/$(database)/documents/invites/$(inviteToken)).data;
+      return invite.status == 'pending'
+        && invite.email == request.auth.token.email
+        && invite.role == data.role
+        && invite.locationId == data.locationId
+        && invite.areaId == data.areaId
+        && invite.regionId == data.regionId;
+    }
+
+    // ---- users ----
+    match /users/{uid} {
+      allow get: if isSignedIn() && (
+        request.auth.uid == uid
+        || isAccreditationSpecialist()
+        || isRegionAdminForRegion(resource.data.regionId)
+      );
+
+      allow list: if isAccreditationSpecialist();
+
+      allow create: if isSignedIn()
+        && request.auth.uid == uid
+        && request.resource.data.email == request.auth.token.email
+        && isValidRole(request.resource.data.role)
+        && request.resource.data.inviteToken is string
+        && inviteAuthorizes(request.resource.data.inviteToken, request.resource.data);
+
+      allow update, delete: if isAccreditationSpecialist()
+        || isRegionAdminForRegion(resource.data.regionId);
+    }
+
+    // ---- regions / area_managers / locations ----
+    // Read: any authenticated user (matches every dashboard's current query pattern).
+    // Write: Accreditation Specialist only (matches RecordEditModal + importData.js today).
+    match /regions/{regionId} {
+      allow read: if isSignedIn();
+      allow write: if isAccreditationSpecialist();
+    }
+
+    match /area_managers/{areaManagerId} {
+      allow read: if isSignedIn();
+      allow write: if isAccreditationSpecialist();
+    }
+
+    match /locations/{locationId} {
+      allow read: if isSignedIn();
+      allow write: if isAccreditationSpecialist();
+    }
+
+    // ---- assessments ----
+    match /assessments/{assessmentId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && myRole() == 'locationManager'
+        && request.resource.data.locationId == myData().locationId;
+      // No update/delete rule: nothing in the app edits or deletes a submitted assessment today.
+    }
+
+    // ---- submission_comments ----
+    match /submission_comments/{commentId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.authorEmail == request.auth.token.email
+        && request.resource.data.authorRole == myRole();
+      // No update/delete rule: comments are an append-only two-way thread today.
+    }
+
+    // ---- invites ----
+    match /invites/{token} {
+      // Unauthenticated get-by-token so a brand-new invitee (no account yet) can load their own
+      // invite from the link. `list` is NOT allowed unauthenticated, so invites can't be enumerated.
+      allow get: if true;
+
+      allow list: if isAccreditationSpecialist() || (isSignedIn() && myRole() == 'regionAdmin');
+
+      allow create: if isSignedIn() && (
+        (isAccreditationSpecialist() && isValidRole(request.resource.data.role))
+        || (
+          myRole() == 'regionAdmin'
+          && request.resource.data.role in ['locationManager', 'areaManager']
+          && request.resource.data.regionId == myData().regionId
+          && request.resource.data.invitedByUid == request.auth.uid
+        )
+      );
+
+      allow update: if isSignedIn() && (
+        // The invitee accepting their own invite.
+        (request.auth.token.email == resource.data.email
+          && resource.data.status == 'pending'
+          && request.resource.data.status == 'accepted')
+        // An admin revoking a pending invite they're allowed to manage.
+        || (
+          (isAccreditationSpecialist() || isRegionAdminForRegion(resource.data.regionId))
+          && request.resource.data.status == 'revoked'
+        )
+      );
+    }
+  }
+}

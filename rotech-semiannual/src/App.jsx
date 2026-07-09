@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { auth } from './lib/firebase';
 import Login from './components/Login';
+import AcceptInvite from './components/AcceptInvite';
 import LocationManagerDash from './components/dashboards/LocationManagerDash';
 import AreaManagerDash from './components/dashboards/AreaManagerDash';
 import RegionAdminDash from './components/dashboards/RegionAdminDash';
@@ -40,7 +41,8 @@ function App() {
     <Router basename="/rotech-semiannual/">
       <Routes>
         <Route path="/" element={<Login />} />
-        <Route 
+        <Route path="/accept-invite" element={<AcceptInvite />} />
+        <Route
           path="/location-manager" 
           element={
             <ProtectedRoute>

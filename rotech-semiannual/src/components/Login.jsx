@@ -1,14 +1,12 @@
 import { useState } from 'react';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
+import { signInWithEmailAndPassword } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
-import { doc, setDoc, getDoc } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
 import { useNavigate } from 'react-router-dom';
 
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [isSignUp, setIsSignUp] = useState(false);
-  const [role, setRole] = useState('locationManager');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
@@ -19,53 +17,29 @@ export default function Login() {
     setLoading(true);
 
     try {
-      let userCredential;
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
 
-      if (isSignUp) {
-        // Sign up
-        userCredential = await createUserWithEmailAndPassword(auth, email, password);
-        const user = userCredential.user;
+      // Get user role from Firestore
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      const userRole = userDoc.data()?.role || 'locationManager';
 
-        // Create user document in Firestore
-        await setDoc(doc(db, 'users', user.uid), {
-          email: user.email,
-          role: role,
-          createdAt: new Date(),
-          locationId: role === 'locationManager' ? 'TBD' : null,
-          areaId: role === 'areaManager' ? 'TBD' : null,
-          regionId: role === 'regionAdmin' ? 'TBD' : null,
-        });
-
-        setError('Account created! Please sign in.');
-        setIsSignUp(false);
-        setEmail('');
-        setPassword('');
-      } else {
-        // Sign in
-        userCredential = await signInWithEmailAndPassword(auth, email, password);
-        const user = userCredential.user;
-
-        // Get user role from Firestore
-        const userDoc = await getDoc(doc(db, 'users', user.uid));
-        const userRole = userDoc.data()?.role || 'locationManager';
-
-        // Redirect based on role
-        switch (userRole) {
-          case 'locationManager':
-            navigate('/location-manager');
-            break;
-          case 'areaManager':
-            navigate('/area-manager');
-            break;
-          case 'regionAdmin':
-            navigate('/region-admin');
-            break;
-          case 'accreditationSpecialist':
-            navigate('/accreditation');
-            break;
-          default:
-            navigate('/location-manager');
-        }
+      // Redirect based on role
+      switch (userRole) {
+        case 'locationManager':
+          navigate('/location-manager');
+          break;
+        case 'areaManager':
+          navigate('/area-manager');
+          break;
+        case 'regionAdmin':
+          navigate('/region-admin');
+          break;
+        case 'accreditationSpecialist':
+          navigate('/accreditation');
+          break;
+        default:
+          navigate('/location-manager');
       }
     } catch (err) {
       setError(err.message);
@@ -85,23 +59,6 @@ export default function Login() {
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Role Selection */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              User Role
-            </label>
-            <select
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              <option value="locationManager">Location Manager</option>
-              <option value="areaManager">Area Manager</option>
-              <option value="regionAdmin">Region Admin</option>
-              <option value="accreditationSpecialist">Accreditation Specialist</option>
-            </select>
-          </div>
-
           {/* Email */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -134,11 +91,7 @@ export default function Login() {
 
           {/* Error Message */}
           {error && (
-            <div className={`p-3 rounded-lg text-sm ${
-              error.includes('created') 
-                ? 'bg-green-100 text-green-700' 
-                : 'bg-red-100 text-red-700'
-            }`}>
+            <div className="p-3 rounded-lg text-sm bg-red-100 text-red-700">
               {error}
             </div>
           )}
@@ -149,45 +102,12 @@ export default function Login() {
             disabled={loading}
             className="w-full bg-blue-900 text-white py-2 rounded-lg font-medium hover:bg-blue-800 transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {loading ? 'Please wait...' : isSignUp ? 'Create Account' : 'Sign In'}
+            {loading ? 'Please wait...' : 'Sign In'}
           </button>
         </form>
 
-        {/* Toggle Sign In / Sign Up */}
         <div className="mt-6 text-center text-sm text-gray-600">
-          {isSignUp ? (
-            <>
-              Already have an account?{' '}
-              <button
-                onClick={() => {
-                  setIsSignUp(false);
-                  setError('');
-                }}
-                className="text-blue-900 font-medium hover:underline"
-              >
-                Sign in
-              </button>
-            </>
-          ) : (
-            <>
-              Don't have an account?{' '}
-              <button
-                onClick={() => {
-                  setIsSignUp(true);
-                  setError('');
-                }}
-                className="text-blue-900 font-medium hover:underline"
-              >
-                Create one
-              </button>
-            </>
-          )}
-        </div>
-
-        {/* Test Credentials Info */}
-        <div className="mt-8 p-4 bg-blue-50 rounded-lg text-xs text-gray-600 border border-blue-200">
-          <p className="font-semibold text-gray-700 mb-2">Demo Credentials:</p>
-          <p>For testing, create an account with any email/password combination.</p>
+          Accounts are created by invitation only. Contact your administrator if you need access.
         </div>
       </div>
     </div>
