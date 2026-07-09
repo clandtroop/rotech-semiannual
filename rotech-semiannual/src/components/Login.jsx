@@ -169,6 +169,17 @@ export default function Login() {
         <div className="mt-6 text-center text-sm text-gray-600">
           Accounts are created by invitation only. Contact your Regions Admin or Accreditation Specialist if you need access.
         </div>
+
+        <div className="mt-4 text-center">
+          <a
+            href="/rotech-semiannual/sop.html"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm text-blue-700 hover:text-blue-900 hover:underline font-medium"
+          >
+            📋 View Standard Operating Procedures (printable)
+          </a>
+        </div>
       </div>
     </div>
   );
