@@ -93,6 +93,11 @@ export default function Login() {
         <div className="text-center mb-8">
           <div className="text-3xl font-bold text-blue-900 mb-2">Rotech Healthcare</div>
           <div className="text-lg text-gray-600">Location Readiness Platform</div>
+          <div className="md:flex-wrap items-baseline gap-2 text-x1 font-bold mb-2">
+              <span className="text-blue-900">Accreditation </span>
+              <span className="text-green-900">= $$$</span>
+              <span className="text-blue-900">  For Services Rendered</span>
+    </div>
         </div>
 
         {/* Form */}
@@ -162,7 +167,7 @@ export default function Login() {
         </form>
 
         <div className="mt-6 text-center text-sm text-gray-600">
-          Accounts are created by invitation only. Contact your administrator if you need access.
+          Accounts are created by invitation only. Contact your Regions Admin or Accreditation Specialist if you need access.
         </div>
       </div>
     </div>
