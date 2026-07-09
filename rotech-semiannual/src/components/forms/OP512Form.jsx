@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { db } from '../../lib/firebase';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 
 const OP512_ITEMS = [
   { id: '1', label: 'Work areas clean?' },
@@ -37,9 +37,9 @@ const OP512_ITEMS = [
   { id: '32', label: 'All electrically operated tools properly grounded or double insulated?' },
 ];
 
-export default function OP512Form({ locationId, quarter, onSubmitSuccess }) {
-  const [responses, setResponses] = useState({});
-  const [comments, setComments] = useState('');
+export default function OP512Form({ locationId, quarter, existingAssessment, onSubmitSuccess }) {
+  const [responses, setResponses] = useState(() => existingAssessment?.responses || {});
+  const [comments, setComments] = useState(() => existingAssessment?.comments || '');
   const [loading, setLoading] = useState(false);
   const [submitStatus, setSubmitStatus] = useState('');
 
@@ -64,8 +64,9 @@ export default function OP512Form({ locationId, quarter, onSubmitSuccess }) {
         return;
       }
 
-      // Save to Firestore
-      const assessmentRef = await addDoc(collection(db, 'assessments'), {
+      // Save to Firestore — update the rejected assessment in place if resubmitting,
+      // otherwise create a new one.
+      const assessmentData = {
         locationId: locationId,
         assessmentType: 'OP512',
         quarter: quarter,
@@ -73,7 +74,13 @@ export default function OP512Form({ locationId, quarter, onSubmitSuccess }) {
         submittedAt: serverTimestamp(),
         responses: responses,
         comments: comments,
-      });
+      };
+
+      if (existingAssessment) {
+        await updateDoc(doc(db, 'assessments', existingAssessment.id), assessmentData);
+      } else {
+        await addDoc(collection(db, 'assessments'), assessmentData);
+      }
 
       setSubmitStatus('✓ Assessment submitted successfully!');
       setResponses({});

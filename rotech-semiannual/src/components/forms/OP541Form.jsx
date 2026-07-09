@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { db } from '../../lib/firebase';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 
 const WARNING_BANNER_LINES = [
   'REPORT MUST BE ACCURATE.',
@@ -314,13 +314,25 @@ function ChecklistSection({ title, items, values, onChange, onShowMada }) {
   );
 }
 
-export default function OP541Form({ locationId, quarter, onSubmitSuccess }) {
+export default function OP541Form({ locationId, quarter, existingAssessment, onSubmitSuccess }) {
   const [activeTab, setActiveTab] = useState('facility');
-  const [facilityResponses, setFacilityResponses] = useState(() => createEmptySectionResponses(FACILITY_REVIEW_SECTIONS));
-  const [warehouseIncluded, setWarehouseIncluded] = useState(false);
-  const [warehouseResponses, setWarehouseResponses] = useState(() => createEmptySectionResponses(WAREHOUSE_REVIEW_SECTIONS));
-  const [vehicles, setVehicles] = useState([createEmptyVehicle()]);
-  const [comments, setComments] = useState('');
+  const [facilityResponses, setFacilityResponses] = useState(() => (
+    existingAssessment?.facilityReview || createEmptySectionResponses(FACILITY_REVIEW_SECTIONS)
+  ));
+  const [warehouseIncluded, setWarehouseIncluded] = useState(() => Boolean(existingAssessment?.warehouseReview?.included));
+  const [warehouseResponses, setWarehouseResponses] = useState(() => {
+    if (existingAssessment?.warehouseReview?.included) {
+      const { included, ...responses } = existingAssessment.warehouseReview;
+      return responses;
+    }
+    return createEmptySectionResponses(WAREHOUSE_REVIEW_SECTIONS);
+  });
+  const [vehicles, setVehicles] = useState(() => (
+    existingAssessment?.vehicles?.length
+      ? existingAssessment.vehicles.map(vehicle => ({ key: crypto.randomUUID(), ...vehicle }))
+      : [createEmptyVehicle()]
+  ));
+  const [comments, setComments] = useState(() => existingAssessment?.comments || '');
   const [loading, setLoading] = useState(false);
   const [showMadaBulletin, setShowMadaBulletin] = useState(false);
   const [submitStatus, setSubmitStatus] = useState('');
@@ -388,7 +400,7 @@ export default function OP541Form({ locationId, quarter, onSubmitSuccess }) {
         return;
       }
 
-      await addDoc(collection(db, 'assessments'), {
+      const assessmentData = {
         locationId: locationId,
         assessmentType: 'OP541',
         quarter: quarter,
@@ -398,7 +410,13 @@ export default function OP541Form({ locationId, quarter, onSubmitSuccess }) {
         warehouseReview: warehouseIncluded ? { included: true, ...warehouseResponses } : null,
         vehicles: vehicles.map(({ key, ...vehicle }) => vehicle),
         comments: comments,
-      });
+      };
+
+      if (existingAssessment) {
+        await updateDoc(doc(db, 'assessments', existingAssessment.id), assessmentData);
+      } else {
+        await addDoc(collection(db, 'assessments'), assessmentData);
+      }
 
       setSubmitStatus('✓ Assessment submitted successfully!');
       setFacilityResponses(createEmptySectionResponses(FACILITY_REVIEW_SECTIONS));

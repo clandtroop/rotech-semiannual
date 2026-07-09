@@ -4,6 +4,8 @@ import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firesto
 import { signOut } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 import CommentThread from '../CommentThread';
+import CorrectiveActionModal from '../CorrectiveActionModal';
+import { getFlaggedSections } from '../../utils/correctiveActions';
 
 export default function AreaManagerDash() {
   const [user, setUser] = useState(null);
@@ -12,6 +14,7 @@ export default function AreaManagerDash() {
   const [submissions, setSubmissions] = useState({});
   const [commentCounts, setCommentCounts] = useState({});
   const [activeThread, setActiveThread] = useState(null);
+  const [correctiveTarget, setCorrectiveTarget] = useState(null);
   const [quarter, setQuarter] = useState('Q1-Q2 2026');
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
@@ -102,8 +105,9 @@ export default function AreaManagerDash() {
     const op541 = submissions[`${locationId}_OP541`];
     const op512 = submissions[`${locationId}_OP512`];
     const jc427 = submissions[`${locationId}_JC427`];
-    
-    if (op541 && op512 && jc427) return 'complete';
+    const isAccepted = (sub) => sub && sub.status !== 'rejected';
+
+    if (isAccepted(op541) && isAccepted(op512) && isAccepted(jc427)) return 'complete';
     if (op541 || op512 || jc427) return 'partial';
     return 'pending';
   };
@@ -141,6 +145,38 @@ export default function AreaManagerDash() {
   const partialCount = locations.filter(loc => getLocationStatus(loc.id) === 'partial').length;
   const pendingCount = locations.filter(loc => getLocationStatus(loc.id) === 'pending').length;
   const completionRate = totalLocations > 0 ? Math.round((completeCount / totalLocations) * 100) : 0;
+
+  const renderAssessmentCell = (sub, location) => {
+    if (!sub) {
+      return <span className="inline-block bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs font-semibold">—</span>;
+    }
+
+    const rejected = sub.status === 'rejected';
+    const flagged = getFlaggedSections(sub);
+
+    return (
+      <div className="flex flex-col items-center gap-1">
+        <button
+          type="button"
+          onClick={() => setActiveThread({ assessmentId: sub.id, locationId: location.id, assessmentType: sub.assessmentType, locationName: location.name })}
+          className={`inline-block px-2 py-1 rounded text-xs font-semibold ${
+            rejected ? 'bg-red-100 text-red-700 hover:bg-red-200' : 'bg-green-100 text-green-700 hover:bg-green-200'
+          }`}
+        >
+          {rejected ? '✕ Rejected' : '💬'} {commentCounts[sub.id] || 0}
+        </button>
+        {flagged.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setCorrectiveTarget({ assessment: sub, locationId: location.id, assessmentType: sub.assessmentType, locationName: location.name })}
+            className="text-xs text-yellow-700 font-semibold hover:underline"
+          >
+            ⚠ {flagged.length} CA
+          </button>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -230,45 +266,9 @@ export default function AreaManagerDash() {
                         <td className="px-6 py-4 text-sm font-medium text-gray-900">{location.name}</td>
                         <td className="px-6 py-4 text-sm text-gray-600">{location.lawsonNumber}</td>
                         <td className="px-6 py-4 text-sm text-gray-600">{location.city}, {location.state}</td>
-                        <td className="px-6 py-4 text-center">
-                          {op541 ? (
-                            <button
-                              type="button"
-                              onClick={() => setActiveThread({ assessmentId: op541.id, locationId: location.id, assessmentType: 'OP541', locationName: location.name })}
-                              className="inline-block bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-semibold hover:bg-green-200"
-                            >
-                              💬 {commentCounts[op541.id] || 0}
-                            </button>
-                          ) : (
-                            <span className="inline-block bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs font-semibold">—</span>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 text-center">
-                          {op512 ? (
-                            <button
-                              type="button"
-                              onClick={() => setActiveThread({ assessmentId: op512.id, locationId: location.id, assessmentType: 'OP512', locationName: location.name })}
-                              className="inline-block bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-semibold hover:bg-green-200"
-                            >
-                              💬 {commentCounts[op512.id] || 0}
-                            </button>
-                          ) : (
-                            <span className="inline-block bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs font-semibold">—</span>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 text-center">
-                          {jc427 ? (
-                            <button
-                              type="button"
-                              onClick={() => setActiveThread({ assessmentId: jc427.id, locationId: location.id, assessmentType: 'JC427', locationName: location.name })}
-                              className="inline-block bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-semibold hover:bg-green-200"
-                            >
-                              💬 {commentCounts[jc427.id] || 0}
-                            </button>
-                          ) : (
-                            <span className="inline-block bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs font-semibold">—</span>
-                          )}
-                        </td>
+                        <td className="px-6 py-4 text-center">{renderAssessmentCell(op541, location)}</td>
+                        <td className="px-6 py-4 text-center">{renderAssessmentCell(op512, location)}</td>
+                        <td className="px-6 py-4 text-center">{renderAssessmentCell(jc427, location)}</td>
                         <td className="px-6 py-4 text-center">
                           <span className={`inline-block ${statusBadge.bg} ${statusBadge.text} px-2 py-1 rounded text-xs font-semibold`}>
                             {statusBadge.label}
@@ -305,6 +305,19 @@ export default function AreaManagerDash() {
           currentUserRole="areaManager"
           onClose={() => setActiveThread(null)}
           onCountChange={(assessmentId, newCount) => setCommentCounts(prev => ({ ...prev, [assessmentId]: newCount }))}
+        />
+      )}
+
+      {correctiveTarget && (
+        <CorrectiveActionModal
+          assessment={correctiveTarget.assessment}
+          locationId={correctiveTarget.locationId}
+          assessmentType={correctiveTarget.assessmentType}
+          quarter={quarter}
+          locationName={correctiveTarget.locationName}
+          currentUserEmail={user?.email}
+          currentUserRole="areaManager"
+          onClose={() => setCorrectiveTarget(null)}
         />
       )}
     </div>

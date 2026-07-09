@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { db } from '../../lib/firebase';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 
 const JC427_SECTIONS = {
   onboarding: {
@@ -231,9 +231,13 @@ function CompetencySection({ title, comment, items, values, onChange }) {
   );
 }
 
-export default function JC427Form({ locationId, quarter, onSubmitSuccess }) {
-  const [employees, setEmployees] = useState([createEmptyEmployee()]);
-  const [comments, setComments] = useState('');
+export default function JC427Form({ locationId, quarter, existingAssessment, onSubmitSuccess }) {
+  const [employees, setEmployees] = useState(() => (
+    existingAssessment?.employees?.length
+      ? existingAssessment.employees.map(emp => ({ key: crypto.randomUUID(), ...emp }))
+      : [createEmptyEmployee()]
+  ));
+  const [comments, setComments] = useState(() => existingAssessment?.comments || '');
   const [loading, setLoading] = useState(false);
   const [submitStatus, setSubmitStatus] = useState('');
   const [showInstructions, setShowInstructions] = useState(false);
@@ -293,7 +297,7 @@ export default function JC427Form({ locationId, quarter, onSubmitSuccess }) {
         return;
       }
 
-      await addDoc(collection(db, 'assessments'), {
+      const assessmentData = {
         locationId: locationId,
         assessmentType: 'JC427',
         quarter: quarter,
@@ -301,7 +305,13 @@ export default function JC427Form({ locationId, quarter, onSubmitSuccess }) {
         submittedAt: serverTimestamp(),
         employees: employees.map(({ key, ...emp }) => emp),
         comments: comments,
-      });
+      };
+
+      if (existingAssessment) {
+        await updateDoc(doc(db, 'assessments', existingAssessment.id), assessmentData);
+      } else {
+        await addDoc(collection(db, 'assessments'), assessmentData);
+      }
 
       setSubmitStatus('✓ Assessment submitted successfully!');
       setEmployees([createEmptyEmployee()]);

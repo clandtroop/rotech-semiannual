@@ -7,6 +7,8 @@ import OP541Form from '../forms/OP541Form';
 import OP512Form from '../forms/OP512Form';
 import JC427Form from '../forms/JC427Form';
 import CommentThread from '../CommentThread';
+import CorrectiveActionModal from '../CorrectiveActionModal';
+import { getFlaggedSections } from '../../utils/correctiveActions';
 
 export default function LocationManagerDash() {
   const [user, setUser] = useState(null);
@@ -15,6 +17,7 @@ export default function LocationManagerDash() {
   const [submissions, setSubmissions] = useState({});
   const [commentCounts, setCommentCounts] = useState({});
   const [activeThread, setActiveThread] = useState(null); // assessmentType string
+  const [correctiveTarget, setCorrectiveTarget] = useState(null);
   const [quarter, setQuarter] = useState('Q1-Q2 2026');
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
@@ -110,6 +113,86 @@ export default function LocationManagerDash() {
     }, 2000);
   };
 
+  const FORM_CARD_CONFIG = {
+    OP541: { title: 'OP 541', subtitle: 'Facility Readiness Assessment', meta: '~45 items • 15-20 minutes', accent: 'border-blue-900', text: 'text-blue-900', button: 'bg-blue-900 hover:bg-blue-800' },
+    OP512: { title: 'OP 512', subtitle: 'Facility Safety Inspection', meta: '32 items • 10-15 minutes', accent: 'border-orange-600', text: 'text-orange-600', button: 'bg-orange-600 hover:bg-orange-700' },
+    JC427: { title: 'JC 427', subtitle: 'Personnel Records Review', meta: '~30 items • 15-20 minutes', accent: 'border-green-700', text: 'text-green-700', button: 'bg-green-700 hover:bg-green-800' },
+  };
+
+  const renderStatusCard = (type, title, subtitle) => {
+    const sub = submissions[type];
+    const rejected = sub?.status === 'rejected';
+    const flagged = sub ? getFlaggedSections(sub) : [];
+
+    const borderClass = rejected ? 'border-red-500 bg-red-50' : sub ? 'border-green-500 bg-green-50' : 'border-gray-300 bg-gray-50';
+    const badgeClass = rejected ? 'bg-red-200 text-red-800' : sub ? 'bg-green-200 text-green-800' : 'bg-yellow-200 text-yellow-800';
+    const badgeLabel = rejected ? '✕ Rejected' : sub ? '✓ Submitted' : 'Pending';
+
+    return (
+      <div key={type} className={`border-l-4 rounded-lg p-4 ${borderClass}`}>
+        <div className="flex justify-between items-start">
+          <div>
+            <h3 className="font-bold text-gray-800">{title}</h3>
+            <p className="text-sm text-gray-600">{subtitle}</p>
+          </div>
+          <span className={`text-sm font-bold px-2 py-1 rounded ${badgeClass}`}>{badgeLabel}</span>
+        </div>
+        {sub && (
+          <>
+            <p className="text-xs text-gray-600 mt-2">
+              Submitted: {new Date(sub.submittedAt?.toDate?.()).toLocaleDateString()}
+            </p>
+            {rejected && sub.rejectionReason && (
+              <p className="text-xs text-red-700 mt-1">Reason: {sub.rejectionReason}</p>
+            )}
+            <button
+              type="button"
+              onClick={() => setActiveThread(type)}
+              className="block text-xs text-blue-700 font-medium hover:underline mt-1"
+            >
+              💬 View Comments ({commentCounts[type] || 0})
+            </button>
+            {flagged.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setCorrectiveTarget({ assessment: sub, assessmentType: type })}
+                className="block text-xs text-yellow-700 font-semibold hover:underline mt-1"
+              >
+                ⚠ {flagged.length} section(s) need corrective action
+              </button>
+            )}
+          </>
+        )}
+      </div>
+    );
+  };
+
+  const renderFormCard = (type) => {
+    const config = FORM_CARD_CONFIG[type];
+    const sub = submissions[type];
+    const rejected = sub?.status === 'rejected';
+    const locked = Boolean(sub) && !rejected;
+
+    return (
+      <div key={type} className={`bg-white rounded-lg shadow-lg hover:shadow-xl transition overflow-hidden border-t-4 ${config.accent}`}>
+        <div className="p-6">
+          <h3 className={`text-lg font-bold mb-2 ${config.text}`}>{config.title}</h3>
+          <p className="text-sm text-gray-600 mb-4">{config.subtitle}</p>
+          <p className="text-xs text-gray-500 mb-4">{config.meta}</p>
+          <button
+            onClick={() => setSelectedForm(type)}
+            disabled={locked}
+            className={`w-full py-2 rounded-lg font-medium transition ${
+              locked ? 'bg-green-100 text-green-700 cursor-not-allowed' : `${config.button} text-white`
+            }`}
+          >
+            {locked ? '✓ Already Submitted' : rejected ? '↻ Resubmit' : 'Start Assessment'}
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -186,175 +269,18 @@ export default function LocationManagerDash() {
         <div className="bg-white rounded-lg shadow p-6 mb-8">
           <h2 className="text-xl font-bold text-gray-800 mb-4">Assessment Status</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* OP 541 */}
-            <div className={`border-l-4 rounded-lg p-4 ${
-              submissions.OP541 
-                ? 'border-green-500 bg-green-50' 
-                : 'border-gray-300 bg-gray-50'
-            }`}>
-              <div className="flex justify-between items-start">
-                <div>
-                  <h3 className="font-bold text-gray-800">OP 541</h3>
-                  <p className="text-sm text-gray-600">Facility Readiness</p>
-                </div>
-                <span className={`text-sm font-bold px-2 py-1 rounded ${
-                  submissions.OP541
-                    ? 'bg-green-200 text-green-800'
-                    : 'bg-yellow-200 text-yellow-800'
-                }`}>
-                  {submissions.OP541 ? '✓ Submitted' : 'Pending'}
-                </span>
-              </div>
-              {submissions.OP541 && (
-                <>
-                  <p className="text-xs text-gray-600 mt-2">
-                    Submitted: {new Date(submissions.OP541.submittedAt?.toDate?.()).toLocaleDateString()}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setActiveThread('OP541')}
-                    className="text-xs text-blue-700 font-medium hover:underline mt-1"
-                  >
-                    💬 View Comments ({commentCounts.OP541 || 0})
-                  </button>
-                </>
-              )}
-            </div>
-
-            {/* OP 512 */}
-            <div className={`border-l-4 rounded-lg p-4 ${
-              submissions.OP512 
-                ? 'border-green-500 bg-green-50' 
-                : 'border-gray-300 bg-gray-50'
-            }`}>
-              <div className="flex justify-between items-start">
-                <div>
-                  <h3 className="font-bold text-gray-800">OP 512</h3>
-                  <p className="text-sm text-gray-600">Safety Inspection</p>
-                </div>
-                <span className={`text-sm font-bold px-2 py-1 rounded ${
-                  submissions.OP512
-                    ? 'bg-green-200 text-green-800'
-                    : 'bg-yellow-200 text-yellow-800'
-                }`}>
-                  {submissions.OP512 ? '✓ Submitted' : 'Pending'}
-                </span>
-              </div>
-              {submissions.OP512 && (
-                <>
-                  <p className="text-xs text-gray-600 mt-2">
-                    Submitted: {new Date(submissions.OP512.submittedAt?.toDate?.()).toLocaleDateString()}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setActiveThread('OP512')}
-                    className="text-xs text-blue-700 font-medium hover:underline mt-1"
-                  >
-                    💬 View Comments ({commentCounts.OP512 || 0})
-                  </button>
-                </>
-              )}
-            </div>
-
-            {/* JC 427 */}
-            <div className={`border-l-4 rounded-lg p-4 ${
-              submissions.JC427 
-                ? 'border-green-500 bg-green-50' 
-                : 'border-gray-300 bg-gray-50'
-            }`}>
-              <div className="flex justify-between items-start">
-                <div>
-                  <h3 className="font-bold text-gray-800">JC 427</h3>
-                  <p className="text-sm text-gray-600">Personnel Records</p>
-                </div>
-                <span className={`text-sm font-bold px-2 py-1 rounded ${
-                  submissions.JC427
-                    ? 'bg-green-200 text-green-800'
-                    : 'bg-yellow-200 text-yellow-800'
-                }`}>
-                  {submissions.JC427 ? '✓ Submitted' : 'Pending'}
-                </span>
-              </div>
-              {submissions.JC427 && (
-                <>
-                  <p className="text-xs text-gray-600 mt-2">
-                    Submitted: {new Date(submissions.JC427.submittedAt?.toDate?.()).toLocaleDateString()}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setActiveThread('JC427')}
-                    className="text-xs text-blue-700 font-medium hover:underline mt-1"
-                  >
-                    💬 View Comments ({commentCounts.JC427 || 0})
-                  </button>
-                </>
-              )}
-            </div>
+            {renderStatusCard('OP541', 'OP 541', 'Facility Readiness')}
+            {renderStatusCard('OP512', 'OP 512', 'Safety Inspection')}
+            {renderStatusCard('JC427', 'JC 427', 'Personnel Records')}
           </div>
         </div>
 
         {/* Form Selection or Form View */}
         {!selectedForm ? (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {/* OP 541 Card */}
-            <div className="bg-white rounded-lg shadow-lg hover:shadow-xl transition overflow-hidden border-t-4 border-blue-900">
-              <div className="p-6">
-                <h3 className="text-lg font-bold text-blue-900 mb-2">OP 541</h3>
-                <p className="text-sm text-gray-600 mb-4">Facility Readiness Assessment</p>
-                <p className="text-xs text-gray-500 mb-4">~45 items • 15-20 minutes</p>
-                <button
-                  onClick={() => setSelectedForm('OP541')}
-                  disabled={submissions.OP541}
-                  className={`w-full py-2 rounded-lg font-medium transition ${
-                    submissions.OP541
-                      ? 'bg-green-100 text-green-700 cursor-not-allowed'
-                      : 'bg-blue-900 text-white hover:bg-blue-800'
-                  }`}
-                >
-                  {submissions.OP541 ? '✓ Already Submitted' : 'Start Assessment'}
-                </button>
-              </div>
-            </div>
-
-            {/* OP 512 Card */}
-            <div className="bg-white rounded-lg shadow-lg hover:shadow-xl transition overflow-hidden border-t-4 border-orange-600">
-              <div className="p-6">
-                <h3 className="text-lg font-bold text-orange-600 mb-2">OP 512</h3>
-                <p className="text-sm text-gray-600 mb-4">Facility Safety Inspection</p>
-                <p className="text-xs text-gray-500 mb-4">32 items • 10-15 minutes</p>
-                <button
-                  onClick={() => setSelectedForm('OP512')}
-                  disabled={submissions.OP512}
-                  className={`w-full py-2 rounded-lg font-medium transition ${
-                    submissions.OP512
-                      ? 'bg-green-100 text-green-700 cursor-not-allowed'
-                      : 'bg-orange-600 text-white hover:bg-orange-700'
-                  }`}
-                >
-                  {submissions.OP512 ? '✓ Already Submitted' : 'Start Assessment'}
-                </button>
-              </div>
-            </div>
-
-            {/* JC 427 Card */}
-            <div className="bg-white rounded-lg shadow-lg hover:shadow-xl transition overflow-hidden border-t-4 border-green-700">
-              <div className="p-6">
-                <h3 className="text-lg font-bold text-green-700 mb-2">JC 427</h3>
-                <p className="text-sm text-gray-600 mb-4">Personnel Records Review</p>
-                <p className="text-xs text-gray-500 mb-4">~30 items • 15-20 minutes</p>
-                <button
-                  onClick={() => setSelectedForm('JC427')}
-                  disabled={submissions.JC427}
-                  className={`w-full py-2 rounded-lg font-medium transition ${
-                    submissions.JC427
-                      ? 'bg-green-100 text-green-700 cursor-not-allowed'
-                      : 'bg-green-700 text-white hover:bg-green-800'
-                  }`}
-                >
-                  {submissions.JC427 ? '✓ Already Submitted' : 'Start Assessment'}
-                </button>
-              </div>
-            </div>
+            {renderFormCard('OP541')}
+            {renderFormCard('OP512')}
+            {renderFormCard('JC427')}
           </div>
         ) : (
           <div className="space-y-4">
@@ -364,25 +290,28 @@ export default function LocationManagerDash() {
             >
               ← Back to Assessments
             </button>
-            
+
             {selectedForm === 'OP541' && (
-              <OP541Form 
-                locationId={locationData.lawsonNumber} 
+              <OP541Form
+                locationId={locationData.lawsonNumber}
                 quarter={quarter}
+                existingAssessment={submissions.OP541?.status === 'rejected' ? submissions.OP541 : null}
                 onSubmitSuccess={handleFormSubmitSuccess}
               />
             )}
             {selectedForm === 'OP512' && (
-              <OP512Form 
-                locationId={locationData.lawsonNumber} 
+              <OP512Form
+                locationId={locationData.lawsonNumber}
                 quarter={quarter}
+                existingAssessment={submissions.OP512?.status === 'rejected' ? submissions.OP512 : null}
                 onSubmitSuccess={handleFormSubmitSuccess}
               />
             )}
             {selectedForm === 'JC427' && (
-              <JC427Form 
-                locationId={locationData.lawsonNumber} 
+              <JC427Form
+                locationId={locationData.lawsonNumber}
                 quarter={quarter}
+                existingAssessment={submissions.JC427?.status === 'rejected' ? submissions.JC427 : null}
                 onSubmitSuccess={handleFormSubmitSuccess}
               />
             )}
@@ -401,6 +330,19 @@ export default function LocationManagerDash() {
           currentUserRole="locationManager"
           onClose={() => setActiveThread(null)}
           onCountChange={(assessmentId, newCount) => setCommentCounts(prev => ({ ...prev, [activeThread]: newCount }))}
+        />
+      )}
+
+      {correctiveTarget && (
+        <CorrectiveActionModal
+          assessment={correctiveTarget.assessment}
+          locationId={locationData.lawsonNumber}
+          assessmentType={correctiveTarget.assessmentType}
+          quarter={quarter}
+          locationName={locationData.name}
+          currentUserEmail={user?.email}
+          currentUserRole="locationManager"
+          onClose={() => setCorrectiveTarget(null)}
         />
       )}
     </div>

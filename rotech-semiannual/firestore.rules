@@ -38,6 +38,13 @@ service cloud.firestore {
       return isSignedIn() && myRole() == 'regionAdmin' && myData().regionId == regionId;
     }
 
+    // Region Admin acting on an assessment: assessments don't carry regionId directly, so
+    // resolve it via the location the assessment belongs to.
+    function isRegionAdminForLocation(locationId) {
+      return isSignedIn() && myRole() == 'regionAdmin'
+        && get(/databases/$(database)/documents/locations/$(locationId)).data.regionId == myData().regionId;
+    }
+
     function isValidRole(role) {
       return role in ['locationManager', 'areaManager', 'regionAdmin', 'accreditationSpecialist'];
     }
@@ -97,8 +104,31 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if isSignedIn()
         && myRole() == 'locationManager'
-        && request.resource.data.locationId == myData().locationId;
-      // No update/delete rule: nothing in the app edits or deletes a submitted assessment today.
+        && request.resource.data.locationId == myData().locationId
+        && request.resource.data.status == 'submitted';
+
+      // Two update paths only:
+      // 1. The location manager fixing and resubmitting an assessment that was rejected.
+      // 2. Accreditation Specialist / the location's Region Admin rejecting a submitted one.
+      // Nothing else may update a submitted assessment.
+      allow update: if isSignedIn() && (
+        (
+          myRole() == 'locationManager'
+          && resource.data.locationId == myData().locationId
+          && resource.data.status == 'rejected'
+          && request.resource.data.locationId == resource.data.locationId
+          && request.resource.data.assessmentType == resource.data.assessmentType
+          && request.resource.data.quarter == resource.data.quarter
+          && request.resource.data.status == 'submitted'
+        )
+        || (
+          (isAccreditationSpecialist() || isRegionAdminForLocation(resource.data.locationId))
+          && resource.data.status == 'submitted'
+          && request.resource.data.status == 'rejected'
+          && request.resource.data.rejectionReason is string
+          && request.resource.data.rejectionReason.size() > 0
+        )
+      );
     }
 
     // ---- submission_comments ----
@@ -110,6 +140,17 @@ service cloud.firestore {
       // Comments are otherwise append-only (no update/create-spoofing), but Accreditation
       // Specialist can delete a comment (e.g. test data, something posted in error) as part of
       // their existing full-access role.
+      allow delete: if isAccreditationSpecialist();
+    }
+
+    // ---- corrective_action_logs ----
+    // Same shape/permissions as submission_comments: append-only records of corrective action
+    // documentation logged against a flagged section of an assessment.
+    match /corrective_action_logs/{logId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.authorEmail == request.auth.token.email
+        && request.resource.data.authorRole == myRole();
       allow delete: if isAccreditationSpecialist();
     }
 
