@@ -354,12 +354,12 @@ export default function AccreditationSpecialistDash() {
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <div className="bg-white shadow">
-        <div className="max-w-7xl mx-auto px-4 py-6 flex justify-between items-center">
+        <div className="max-w-7xl mx-auto px-4 py-6 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
           <div>
             <h1 className="text-3xl font-bold text-blue-900">Accreditation Specialist Dashboard</h1>
             <p className="text-gray-600 mt-1">Full read/write access to all locations and regions</p>
           </div>
-          <div className="flex gap-4">
+          <div className="flex flex-wrap gap-3">
             <button
               onClick={() => setShowInviteModal(true)}
               className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition"

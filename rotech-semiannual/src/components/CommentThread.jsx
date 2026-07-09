@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
 import { collection, query, where, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
+import { notifyNewComment } from '../lib/notifyConfig';
 
 const ROLE_LABELS = {
   locationManager: { label: 'Location Manager', badge: 'bg-gray-200 text-gray-800' },
@@ -57,7 +58,8 @@ export default function CommentThread({ assessmentId, locationId, assessmentType
         text: newText.trim(),
         createdAt: serverTimestamp(),
       };
-      await addDoc(collection(db, 'submission_comments'), payload);
+      const docRef = await addDoc(collection(db, 'submission_comments'), payload);
+      notifyNewComment(docRef.id);
       setComments(prev => [...prev, { ...payload, createdAt: { toDate: () => new Date() } }]);
       setNewText('');
       if (onCountChange) onCountChange(assessmentId, comments.length + 1);

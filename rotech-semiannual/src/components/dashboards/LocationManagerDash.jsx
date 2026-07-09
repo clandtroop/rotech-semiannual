@@ -142,12 +142,12 @@ export default function LocationManagerDash() {
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <div className="bg-white shadow">
-        <div className="max-w-6xl mx-auto px-4 py-6 flex justify-between items-center">
+        <div className="max-w-6xl mx-auto px-4 py-6 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
           <div>
             <h1 className="text-3xl font-bold text-blue-900">Location Readiness Platform</h1>
             <p className="text-gray-600 mt-1">Location Manager Dashboard</p>
           </div>
-          <div className="flex gap-4">
+          <div className="flex flex-wrap gap-3">
             <button
               onClick={handleSignOut}
               className="bg-gray-300 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-400 transition"
