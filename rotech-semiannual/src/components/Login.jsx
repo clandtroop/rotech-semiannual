@@ -1,19 +1,37 @@
 import { useState } from 'react';
-import { signInWithEmailAndPassword } from 'firebase/auth';
+import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import { useNavigate } from 'react-router-dom';
+
+const LOGIN_ERROR_MESSAGES = {
+  'auth/invalid-credential': 'Incorrect email or password.',
+  'auth/wrong-password': 'Incorrect email or password.',
+  'auth/user-not-found': 'No account found with that email.',
+  'auth/invalid-email': 'Enter a valid email address.',
+  'auth/user-disabled': 'This account has been disabled. Contact your administrator.',
+  'auth/too-many-requests': 'Too many failed attempts. Please wait a moment and try again.',
+};
+
+const RESET_ERROR_MESSAGES = {
+  'auth/user-not-found': 'No account found with that email.',
+  'auth/invalid-email': 'Enter a valid email address.',
+  'auth/too-many-requests': 'Too many attempts. Please wait a moment and try again.',
+};
 
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [resetMessage, setResetMessage] = useState('');
+  const [resetLoading, setResetLoading] = useState(false);
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setResetMessage('');
     setLoading(true);
 
     try {
@@ -42,9 +60,29 @@ export default function Login() {
           navigate('/location-manager');
       }
     } catch (err) {
-      setError(err.message);
+      setError(LOGIN_ERROR_MESSAGES[err.code] || 'Something went wrong signing in. Please try again.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    setError('');
+    setResetMessage('');
+
+    if (!email.trim()) {
+      setError('Enter your email address above, then click "Forgot password?" again.');
+      return;
+    }
+
+    setResetLoading(true);
+    try {
+      await sendPasswordResetEmail(auth, email.trim());
+      setResetMessage(`Password reset email sent to ${email.trim()}. Check your inbox (and spam folder).`);
+    } catch (err) {
+      setError(RESET_ERROR_MESSAGES[err.code] || 'Something went wrong sending the reset email. Please try again.');
+    } finally {
+      setResetLoading(false);
     }
   };
 
@@ -76,9 +114,19 @@ export default function Login() {
 
           {/* Password */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Password
-            </label>
+            <div className="flex justify-between items-center mb-2">
+              <label className="block text-sm font-medium text-gray-700">
+                Password
+              </label>
+              <button
+                type="button"
+                onClick={handleForgotPassword}
+                disabled={resetLoading}
+                className="text-sm text-blue-700 hover:text-blue-900 hover:underline disabled:opacity-50"
+              >
+                {resetLoading ? 'Sending...' : 'Forgot password?'}
+              </button>
+            </div>
             <input
               type="password"
               value={password}
@@ -88,6 +136,13 @@ export default function Login() {
               required
             />
           </div>
+
+          {/* Reset Confirmation */}
+          {resetMessage && (
+            <div className="p-3 rounded-lg text-sm bg-green-100 text-green-700">
+              {resetMessage}
+            </div>
+          )}
 
           {/* Error Message */}
           {error && (

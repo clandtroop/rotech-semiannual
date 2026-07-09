@@ -4,11 +4,11 @@ Pending work items not yet implemented.
 
 ## UX / Polish
 
-- **Friendly login error messages** — `src/components/Login.jsx` currently displays Firebase
-  Auth's raw SDK error message verbatim (e.g. `"Firebase: Error (auth/invalid-credential)."`).
-  Map `err.code` to friendlier custom text in the `catch` block of `handleSubmit` instead.
-- **Password reset link** — Login page has no "Forgot password" flow. Firebase Auth supports
-  `sendPasswordResetEmail` out of the box; just needs a link + handler wired up in `Login.jsx`.
+- ~~**Friendly login error messages**~~ — done. `Login.jsx` maps common `err.code` values
+  (invalid credential, user not found, disabled, too many requests, etc.) to plain-language text
+  instead of showing the raw Firebase SDK error.
+- ~~**Password reset link**~~ — done. "Forgot password?" next to the password field calls
+  `sendPasswordResetEmail`, with friendly errors and a success confirmation.
 - ~~**Mobile check**~~ — done. All 4 dashboard headers (title + action buttons) overflowed the
   viewport on phone widths, forcing the whole page to scroll horizontally; fixed by making the
   header row stack vertically below the `sm` breakpoint. OP541's review table, data tables
@@ -16,13 +16,12 @@ Pending work items not yet implemented.
 
 ## Data Quality
 
-- ~~**Clean up known Firestore data issues**~~ — mostly done. Deleted the stray blank `regions`
-  doc (`r86DxgBgEQSApL6CMWsk`) and stray blank `locations` doc (`bbIaTA9ppp21bySX3qFZ`) directly.
-  Found *two* test comments on Beaverton's OP512 submission (`submission_comments` docs
-  `q1tUtsp3PQ8cI1FHNBGl` and `5HyRfni78v7dZFYqWZru`), not just one — `submission_comments` is
-  append-only in `firestore.rules` (no delete rule, by design, matching how the app itself works),
-  so these need to be deleted manually via the Firebase Console's data viewer rather than through
-  the app.
+- ~~**Clean up known Firestore data issues**~~ — done. Deleted the stray blank `regions` doc
+  (`r86DxgBgEQSApL6CMWsk`), stray blank `locations` doc (`bbIaTA9ppp21bySX3qFZ`), and the two test
+  comments on Beaverton's OP512 submission (`q1tUtsp3PQ8cI1FHNBGl`, `5HyRfni78v7dZFYqWZru`).
+  `firestore.rules` now grants Accreditation Specialist a `delete` rule on `submission_comments`
+  (previously append-only with no delete path at all) as a general moderation capability, not just
+  a one-off — matches their existing full-access role.
 
 ## Notifications
 

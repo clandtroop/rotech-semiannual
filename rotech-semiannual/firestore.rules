@@ -107,7 +107,10 @@ service cloud.firestore {
       allow create: if isSignedIn()
         && request.resource.data.authorEmail == request.auth.token.email
         && request.resource.data.authorRole == myRole();
-      // No update/delete rule: comments are an append-only two-way thread today.
+      // Comments are otherwise append-only (no update/create-spoofing), but Accreditation
+      // Specialist can delete a comment (e.g. test data, something posted in error) as part of
+      // their existing full-access role.
+      allow delete: if isAccreditationSpecialist();
     }
 
     // ---- invites ----

@@ -33,6 +33,8 @@ data-owner UID or leaving it blank for the unauthenticated cases.
 | 13 | write (any) | `regions/{any id}` | An Accreditation Specialist's UID | **Allow** |
 | 14 | create | `users/{some uid}` with a fabricated `role: "accreditationSpecialist"` and **no** valid `inviteToken` | That uid, freshly authenticated | **Deny** |
 | 15 | update | `invites/{a real pending invite}` setting `status: "accepted"` | Authenticated with an email that does **not** match `resource.data.email` | **Deny** |
+| 16 | delete | `submission_comments/{any comment id}` | A Location Manager's UID | **Deny** |
+| 17 | delete | `submission_comments/{any comment id}` | An Accreditation Specialist's UID | **Allow** |
 
 If every row matches its expected result, publish. If any row doesn't match, stop, don't
 publish, and send me the row number + what you saw — I'll adjust the rule before you try again.
