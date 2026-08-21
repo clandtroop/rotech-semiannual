@@ -160,8 +160,8 @@ export default function AccreditationSpecialistDash() {
   };
 
   const handleSaveLocation = async (data) => {
-    const { lawsonNumber, name, city, state, regionId, areaId } = data;
-    await setDoc(doc(db, 'locations', lawsonNumber), { lawsonNumber, name, city, state, regionId, areaId });
+    const { lawsonNumber, name, city, state, regionId, areaId, jcSurveyDue } = data;
+    await setDoc(doc(db, 'locations', lawsonNumber), { lawsonNumber, name, city, state, regionId, areaId, jcSurveyDue: jcSurveyDue || '' });
     setLocations(await fetchLocations());
     setEditModal(null);
   };
@@ -802,6 +802,7 @@ export default function AccreditationSpecialistDash() {
                     <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">Lawson #</th>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">City, State</th>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">Region / Area</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">JC Survey Due</th>
                     <th className="px-6 py-3 text-center text-sm font-semibold text-gray-700">OP 541</th>
                     <th className="px-6 py-3 text-center text-sm font-semibold text-gray-700">OP 512</th>
                     <th className="px-6 py-3 text-center text-sm font-semibold text-gray-700">JC 427</th>
@@ -823,6 +824,7 @@ export default function AccreditationSpecialistDash() {
                         <td className="px-6 py-4 text-sm text-gray-600">{location.lawsonNumber}</td>
                         <td className="px-6 py-4 text-sm text-gray-600">{location.city}, {location.state}</td>
                         <td className="px-6 py-4 text-sm text-gray-600">{location.regionId} / {location.areaId}</td>
+                        <td className="px-6 py-4 text-sm text-gray-600">{location.jcSurveyDue ? new Date(`${location.jcSurveyDue}T00:00:00`).toLocaleDateString() : '—'}</td>
                         <td className="px-6 py-4 text-center">{renderAssessmentCell(op541, location)}</td>
                         <td className="px-6 py-4 text-center">{renderAssessmentCell(op512, location)}</td>
                         <td className="px-6 py-4 text-center">{renderAssessmentCell(jc427, location)}</td>
@@ -835,7 +837,7 @@ export default function AccreditationSpecialistDash() {
                           <div className="flex items-center justify-center gap-3">
                             <button
                               type="button"
-                              onClick={() => setEditModal({ recordType: 'location', mode: 'edit', initialData: { lawsonNumber: location.lawsonNumber, name: location.name, city: location.city, state: location.state, regionId: location.regionId, areaId: location.areaId } })}
+                              onClick={() => setEditModal({ recordType: 'location', mode: 'edit', initialData: { lawsonNumber: location.lawsonNumber, name: location.name, city: location.city, state: location.state, regionId: location.regionId, areaId: location.areaId, jcSurveyDue: location.jcSurveyDue || '' } })}
                               className="text-blue-700 hover:underline text-sm font-medium"
                             >
                               Edit
