@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { db } from '../../lib/firebase';
 import { collection, addDoc, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 
-const JC427_SECTIONS = {
+export const JC427_SECTIONS = {
   onboarding: {
     title: 'Onboarding Documents',
     items: [
@@ -40,7 +40,7 @@ const JC427_SECTIONS = {
   }
 };
 
-const NON_CLINICAL_COMPETENCIES = [
+export const NON_CLINICAL_COMPETENCIES = [
   { id: 'aspirator', label: 'Aspirator / Suction (SE 816)' },
   { id: 'cpm', label: 'Continuous Passive Motion - CPM (SE 904)' },
   { id: 'pap_device', label: 'PAP Device (SE 811)' },
@@ -63,7 +63,7 @@ const NON_CLINICAL_COMPETENCIES = [
   { id: 'wheelchair_nc', label: 'Wheelchair (SE 824)' },
 ];
 
-const CLINICAL_COMPETENCIES = [
+export const CLINICAL_COMPETENCIES = [
   { id: 'afflovest', label: 'AffloVest' },
   { id: 'airvo2', label: 'Airvo 2' },
   { id: 'astral_ventilator', label: 'Astral Ventilator' },
@@ -89,6 +89,58 @@ const CLINICAL_COMPETENCIES = [
   { id: 'other1', label: 'Other', editableLabel: true },
   { id: 'other2', label: 'Other', editableLabel: true },
 ];
+
+// Standard Rotech job titles for the employee entry. "Other" is the escape
+// hatch and requires the title to be typed in - see JOB_TITLE_HINT.
+export const JOB_TITLES = [
+  'AE',
+  'CDL',
+  'CSR',
+  'CSR SUP',
+  'CST',
+  'DM',
+  'LIAISON',
+  'LCM',
+  'LOC SUP',
+  'LSM',
+  'PAP SPECIALIST',
+  'PST',
+  'RN',
+  'RT',
+  'WHSE SUP',
+];
+
+export const JOB_TITLE_OTHER = 'Other';
+
+export const JOB_TITLE_HINT =
+  "Select Job Title from drop down, select Other ONLY if the employee's Job Title is not listed";
+
+// Clinicians need Clinical Competency Assessments; everyone else needs the
+// Non-Clinical set. The job title seeds the choice, but it stays editable
+// because a title alone doesn't always settle it (e.g. "Other").
+const CLINICAL_JOB_TITLES = ['RN', 'RT'];
+
+export const ROLE_TYPE_LABELS = {
+  clinical: 'Clinical',
+  nonClinical: 'Non-Clinical',
+};
+
+export function defaultRoleTypeForJobTitle(jobTitle) {
+  if (!jobTitle || jobTitle === JOB_TITLE_OTHER) return '';
+  return CLINICAL_JOB_TITLES.includes(jobTitle) ? 'clinical' : 'nonClinical';
+}
+
+// The title as it should be read/printed: the typed-in text when "Other".
+export function resolveJobTitle(employee) {
+  if (!employee) return '';
+  return employee.jobTitle === JOB_TITLE_OTHER
+    ? (employee.jobTitleOther || '').trim()
+    : (employee.jobTitle || '');
+}
+
+function hasAnyCompetency(values) {
+  return Object.entries(values || {}).some(([key, value]) => !key.endsWith('_label') && value);
+}
 
 const INSTRUCTIONS = [
   {
@@ -158,7 +210,7 @@ const STATUS_STYLES = {
 };
 
 // Each competency is valid for 3 years from the entered date.
-function getExpirationStatus(dateStr) {
+export function getExpirationStatus(dateStr) {
   if (!dateStr) return null;
   const entered = new Date(`${dateStr}T00:00:00`);
   if (isNaN(entered.getTime())) return null;
@@ -182,6 +234,8 @@ function createEmptyEmployee() {
     key: crypto.randomUUID(),
     name: '',
     jobTitle: '',
+    jobTitleOther: '',
+    roleType: '',
     hireDate: '',
     personnelRecord: {},
     nonClinicalCompetencies: {},
@@ -189,13 +243,68 @@ function createEmptyEmployee() {
   };
 }
 
-function CompetencySection({ title, comment, items, values, onChange }) {
+// Assessments saved before the job title became a dropdown hold free text.
+// Snap a known title onto the dropdown; anything else becomes "Other".
+function normalizeEmployee(employee) {
+  const raw = (employee.jobTitle || '').trim();
+  const match = JOB_TITLES.find(title => title.toLowerCase() === raw.toLowerCase());
+  const jobTitle = match || (raw ? JOB_TITLE_OTHER : '');
+  const jobTitleOther = match ? '' : (employee.jobTitleOther || raw);
+
+  return {
+    ...employee,
+    key: crypto.randomUUID(),
+    jobTitle,
+    jobTitleOther,
+    roleType: employee.roleType || defaultRoleTypeForJobTitle(jobTitle),
+  };
+}
+
+function CompetencySection({ title, comment, items, values, onChange, expected, notExpectedNote }) {
+  const filledCount = items.filter(item => values[item.id]).length;
+  // Sections that don't apply to this job title collapse out of the way, but
+  // stay openable - a non-clinical employee can still hold a clinical
+  // competency, and vice versa.
+  const [manualOpen, setManualOpen] = useState(null);
+  const open = manualOpen ?? (expected || filledCount > 0);
+
+  const wrapperClass = expected
+    ? 'border-l-4 border-green-700 bg-green-50 rounded-lg p-4'
+    : 'border-l-4 border-gray-300 bg-gray-50 rounded-lg p-4';
+
   return (
-    <div className="border-l-4 border-green-700 bg-green-50 rounded-lg p-4">
+    <div className={wrapperClass}>
       <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
-        <h4 className="text-md font-semibold text-green-900">{title}</h4>
-        <span className="text-xs text-gray-600">🔴 Expired (3+ yrs) &nbsp; 🟡 Expires within 6 mo &nbsp; 🟢 Current</span>
+        <div className="flex items-center flex-wrap gap-2">
+          <h4 className={`text-md font-semibold ${expected ? 'text-green-900' : 'text-gray-700'}`}>{title}</h4>
+          {expected ? (
+            <span className="text-xs font-semibold bg-green-700 text-white px-2 py-0.5 rounded-full">Expected for this job title</span>
+          ) : (
+            <span className="text-xs font-semibold bg-gray-200 text-gray-700 px-2 py-0.5 rounded-full">Not required for this job title</span>
+          )}
+          {filledCount > 0 && (
+            <span className="text-xs text-gray-600">{filledCount} date{filledCount === 1 ? '' : 's'} entered</span>
+          )}
+        </div>
+        {open && (
+          <span className="text-xs text-gray-600">🔴 Expired (3+ yrs) &nbsp; 🟡 Expires within 6 mo &nbsp; 🟢 Current</span>
+        )}
       </div>
+
+      {!expected && notExpectedNote && (
+        <p className="text-xs text-gray-600 mb-2">{notExpectedNote}</p>
+      )}
+
+      <button
+        type="button"
+        onClick={() => setManualOpen(!open)}
+        className="text-xs font-medium text-green-800 hover:underline mb-2"
+      >
+        {open ? '▾ Hide this section' : '▸ Show this section'}
+      </button>
+
+      {!open ? null : (
+      <>
       <p className="text-xs text-gray-700 mb-1 whitespace-pre-line">{comment}</p>
       <p className="text-xs font-semibold text-gray-600 mb-3">Leave date blank if N/A</p>
       <div className="space-y-2">
@@ -227,6 +336,8 @@ function CompetencySection({ title, comment, items, values, onChange }) {
           );
         })}
       </div>
+      </>
+      )}
     </div>
   );
 }
@@ -234,7 +345,7 @@ function CompetencySection({ title, comment, items, values, onChange }) {
 export default function JC427Form({ locationId, quarter, existingAssessment, onSubmitSuccess }) {
   const [employees, setEmployees] = useState(() => (
     existingAssessment?.employees?.length
-      ? existingAssessment.employees.map(emp => ({ key: crypto.randomUUID(), ...emp }))
+      ? existingAssessment.employees.map(normalizeEmployee)
       : [createEmptyEmployee()]
   ));
   const [comments, setComments] = useState(() => existingAssessment?.comments || '');
@@ -246,6 +357,21 @@ export default function JC427Form({ locationId, quarter, existingAssessment, onS
 
   const updateEmployeeField = (key, field, value) => {
     setEmployees(prev => prev.map(emp => (emp.key === key ? { ...emp, [field]: value } : emp)));
+  };
+
+  // Picking a job title re-seeds the clinical/non-clinical choice; the manager
+  // can still override it below.
+  const updateJobTitle = (key, jobTitle) => {
+    setEmployees(prev => prev.map(emp => (
+      emp.key === key
+        ? {
+            ...emp,
+            jobTitle,
+            jobTitleOther: jobTitle === JOB_TITLE_OTHER ? emp.jobTitleOther : '',
+            roleType: defaultRoleTypeForJobTitle(jobTitle) || (jobTitle === JOB_TITLE_OTHER ? emp.roleType : ''),
+          }
+        : emp
+    )));
   };
 
   const updatePersonnelRecord = (key, itemId, value) => {
@@ -267,10 +393,24 @@ export default function JC427Form({ locationId, quarter, existingAssessment, onS
   const addEmployee = () => setEmployees(prev => [...prev, createEmptyEmployee()]);
   const removeEmployee = (key) => setEmployees(prev => prev.filter(emp => emp.key !== key));
 
-  const isEmployeeComplete = (emp) => {
-    if (!emp.name.trim() || !emp.jobTitle.trim() || !emp.hireDate) return false;
-    return allPersonnelItemIds.every(id => emp.personnelRecord[id]);
+  // Every employee needs competencies logged in at least one of the two
+  // groups - clinical for clinicians, non-clinical for everyone else - so a
+  // non-clinical job title can be submitted without any clinical entries.
+  const employeeIssues = (emp) => {
+    const issues = [];
+    if (!emp.name.trim()) issues.push('Name');
+    if (!emp.jobTitle) issues.push('Job Title');
+    if (emp.jobTitle === JOB_TITLE_OTHER && !(emp.jobTitleOther || '').trim()) issues.push('Job Title (Other)');
+    if (!emp.roleType) issues.push('Clinical / Non-Clinical');
+    if (!emp.hireDate) issues.push('Hire Date');
+    if (!allPersonnelItemIds.every(id => emp.personnelRecord[id])) issues.push('all Personnel Record items');
+    if (!hasAnyCompetency(emp.nonClinicalCompetencies) && !hasAnyCompetency(emp.clinicalCompetencies)) {
+      issues.push('at least one competency date (clinical or non-clinical)');
+    }
+    return issues;
   };
+
+  const isEmployeeComplete = (emp) => employeeIssues(emp).length === 0;
 
   const answeredCount = employees.reduce(
     (sum, emp) => sum + allPersonnelItemIds.filter(id => emp.personnelRecord[id]).length,
@@ -291,8 +431,14 @@ export default function JC427Form({ locationId, quarter, existingAssessment, onS
         return;
       }
 
-      if (!employees.every(isEmployeeComplete)) {
-        setSubmitStatus('Please complete Name, Job Title, Hire Date, and all Personnel Record items for every employee.');
+      const incomplete = employees
+        .map((emp, i) => ({ label: emp.name.trim() || `Employee ${i + 1}`, issues: employeeIssues(emp) }))
+        .filter(entry => entry.issues.length > 0);
+
+      if (incomplete.length > 0) {
+        setSubmitStatus(
+          `Please complete: ${incomplete.map(e => `${e.label} — ${e.issues.join(', ')}`).join('; ')}.`
+        );
         setLoading(false);
         return;
       }
@@ -303,14 +449,19 @@ export default function JC427Form({ locationId, quarter, existingAssessment, onS
         quarter: quarter,
         status: 'submitted',
         submittedAt: serverTimestamp(),
-        employees: employees.map(({ key, ...emp }) => emp),
+        // jobTitleResolved is the printable title ("Other" replaced by the
+        // typed-in text) so downstream views don't have to re-derive it.
+        employees: employees.map(({ key, ...emp }) => ({ ...emp, jobTitleResolved: resolveJobTitle(emp) })),
         comments: comments,
       };
 
+      let assessmentId;
       if (existingAssessment) {
-        await updateDoc(doc(db, 'assessments', existingAssessment.id), assessmentData);
+        assessmentId = existingAssessment.id;
+        await updateDoc(doc(db, 'assessments', assessmentId), assessmentData);
       } else {
-        await addDoc(collection(db, 'assessments'), assessmentData);
+        const created = await addDoc(collection(db, 'assessments'), assessmentData);
+        assessmentId = created.id;
       }
 
       setSubmitStatus('✓ Assessment submitted successfully!');
@@ -318,7 +469,9 @@ export default function JC427Form({ locationId, quarter, existingAssessment, onS
       setComments('');
 
       if (onSubmitSuccess) {
-        onSubmitSuccess();
+        // serverTimestamp() is a sentinel until it round-trips, so hand the
+        // review view a real date for the "submitted on" line and PDF name.
+        onSubmitSuccess({ ...assessmentData, id: assessmentId, submittedAt: new Date() });
       }
 
       setTimeout(() => setSubmitStatus(''), 5000);
@@ -368,6 +521,9 @@ export default function JC427Form({ locationId, quarter, existingAssessment, onS
             <div className="flex justify-between items-center">
               <h3 className="text-lg font-bold text-green-900">
                 Employee {index + 1}{emp.name ? `: ${emp.name}` : ''}
+                {resolveJobTitle(emp) && (
+                  <span className="ml-2 text-sm font-normal text-gray-600">({resolveJobTitle(emp)})</span>
+                )}
               </h3>
               {employees.length > 1 && (
                 <button
@@ -391,13 +547,47 @@ export default function JC427Form({ locationId, quarter, existingAssessment, onS
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Job Title</label>
-                <input
-                  type="text"
+                <label className="flex items-center gap-1 text-sm font-medium text-gray-700 mb-1">
+                  Job Title
+                  <span className="relative group inline-flex">
+                    <span
+                      tabIndex={0}
+                      aria-label={JOB_TITLE_HINT}
+                      className="w-4 h-4 flex items-center justify-center rounded-full bg-green-700 text-white text-[10px] font-bold cursor-help"
+                    >
+                      i
+                    </span>
+                    <span className="pointer-events-none absolute left-1/2 bottom-full z-20 mb-2 w-60 -translate-x-1/2 rounded-lg bg-gray-900 px-3 py-2 text-xs font-normal text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                      {JOB_TITLE_HINT}
+                    </span>
+                  </span>
+                </label>
+                <select
                   value={emp.jobTitle}
-                  onChange={(e) => updateEmployeeField(emp.key, 'jobTitle', e.target.value)}
+                  title={JOB_TITLE_HINT}
+                  onChange={(e) => updateJobTitle(emp.key, e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
-                />
+                >
+                  <option value="">-- Select Job Title --</option>
+                  {JOB_TITLES.map(title => (
+                    <option key={title} value={title}>{title}</option>
+                  ))}
+                  <option value={JOB_TITLE_OTHER}>{JOB_TITLE_OTHER}</option>
+                </select>
+                {emp.jobTitle === JOB_TITLE_OTHER && (
+                  <>
+                    <p className="mt-2 text-xs text-yellow-900 bg-yellow-50 border-l-4 border-yellow-500 rounded px-2 py-1">
+                      {JOB_TITLE_HINT}
+                    </p>
+                    <input
+                      type="text"
+                      value={emp.jobTitleOther || ''}
+                      onChange={(e) => updateEmployeeField(emp.key, 'jobTitleOther', e.target.value)}
+                      placeholder="Type the job title"
+                      className="mt-2 w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                    />
+                  </>
+                )}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Hire Date</label>
@@ -408,6 +598,34 @@ export default function JC427Form({ locationId, quarter, existingAssessment, onS
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
                 />
               </div>
+            </div>
+
+            <div className="bg-white border border-gray-200 rounded-lg p-3">
+              <p className="text-sm font-medium text-gray-700">Competency Track</p>
+              <p className="text-xs text-gray-600 mb-2">
+                Set from the job title — change it if this employee's role is different.
+                Clinical roles complete Clinical Competency Assessments; non-clinical roles
+                complete Non-Clinical Competency Assessments. Every employee needs at least
+                one competency date in one of the two sections.
+              </p>
+              <div className="flex flex-wrap gap-4">
+                {Object.entries(ROLE_TYPE_LABELS).map(([value, label]) => (
+                  <label key={value} className="flex items-center gap-2 text-sm text-gray-700">
+                    <input
+                      type="radio"
+                      name={`roleType-${emp.key}`}
+                      value={value}
+                      checked={emp.roleType === value}
+                      onChange={() => updateEmployeeField(emp.key, 'roleType', value)}
+                      className="text-green-700 focus:ring-green-500"
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+              {!emp.roleType && (
+                <p className="text-xs text-red-700 mt-2">Select Clinical or Non-Clinical to continue.</p>
+              )}
             </div>
 
             {Object.entries(JC427_SECTIONS).map(([sectionKey, section]) => (
@@ -438,6 +656,8 @@ export default function JC427Form({ locationId, quarter, existingAssessment, onS
               comment="Employees MUST complete online competencies, pertaining to their job responsibilities, on Docebo: My Training Not Completed - or use search tool. Completed Competency Assessment (SE form) and certificate are to be placed in employee file."
               items={NON_CLINICAL_COMPETENCIES}
               values={emp.nonClinicalCompetencies}
+              expected={emp.roleType !== 'clinical'}
+              notExpectedNote="Non-clinical competencies are not required for clinicians. Open this section only if this employee also holds non-clinical competencies."
               onChange={(itemId, value) => updateCompetency(emp.key, 'nonClinicalCompetencies', itemId, value)}
             />
 
@@ -446,8 +666,16 @@ export default function JC427Form({ locationId, quarter, existingAssessment, onS
               comment="Clinicians MUST complete online competencies, pertaining to their job responsibilities, on Docebo: My Training Not Completed - or use search tool. Completed certificates are to be placed in employee file."
               items={CLINICAL_COMPETENCIES}
               values={emp.clinicalCompetencies}
+              expected={emp.roleType === 'clinical'}
+              notExpectedNote="Clinical competencies are not required for non-clinical job titles. This section can be left empty."
               onChange={(itemId, value) => updateCompetency(emp.key, 'clinicalCompetencies', itemId, value)}
             />
+
+            {employeeIssues(emp).length > 0 && (
+              <p className="text-xs text-red-700">
+                Still needed: {employeeIssues(emp).join(', ')}.
+              </p>
+            )}
           </div>
         ))}
 

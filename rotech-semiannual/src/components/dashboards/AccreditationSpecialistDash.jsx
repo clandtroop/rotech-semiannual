@@ -8,6 +8,7 @@ import RecordEditModal from '../RecordEditModal';
 import CommentThread from '../CommentThread';
 import InviteUserModal from '../InviteUserModal';
 import RejectAssessmentModal from '../RejectAssessmentModal';
+import SubmissionReview from '../SubmissionReview';
 import CorrectiveActionModal from '../CorrectiveActionModal';
 import { getFlaggedSections } from '../../utils/correctiveActions';
 
@@ -28,6 +29,7 @@ export default function AccreditationSpecialistDash() {
   const [commentCounts, setCommentCounts] = useState({});
   const [activeThread, setActiveThread] = useState(null);
   const [rejectTarget, setRejectTarget] = useState(null);
+  const [reviewTarget, setReviewTarget] = useState(null); // { assessment, locationName }
   const [correctiveTarget, setCorrectiveTarget] = useState(null);
   const [invites, setInvites] = useState([]);
   const [showInviteModal, setShowInviteModal] = useState(false);
@@ -382,6 +384,13 @@ export default function AccreditationSpecialistDash() {
           }`}
         >
           {rejected ? '✕ Rejected' : '💬'} {commentCounts[sub.id] || 0}
+        </button>
+        <button
+          type="button"
+          onClick={() => setReviewTarget({ assessment: sub, locationName: location.name })}
+          className="text-xs text-blue-700 font-medium hover:underline"
+        >
+          View
         </button>
         {flagged.length > 0 && (
           <button
@@ -877,6 +886,14 @@ export default function AccreditationSpecialistDash() {
           currentUserRole="accreditationSpecialist"
           onClose={() => setActiveThread(null)}
           onCountChange={(assessmentId, newCount) => setCommentCounts(prev => ({ ...prev, [assessmentId]: newCount }))}
+        />
+      )}
+
+      {reviewTarget && (
+        <SubmissionReview
+          assessment={reviewTarget.assessment}
+          locationName={reviewTarget.locationName}
+          onClose={() => setReviewTarget(null)}
         />
       )}
 

@@ -127,7 +127,7 @@ const DOCUMENTATION_ITEMS = [
   { id: '2.1.29b', label: 'Patient complaints responded to in writing within 14 days (OP 566)' },
 ];
 
-const FACILITY_REVIEW_SECTIONS = {
+export const FACILITY_REVIEW_SECTIONS = {
   overallFacility: { title: 'Overall Facility', items: OVERALL_FACILITY_ITEMS },
   warehouseSpecific: { title: 'Warehouse Specific', items: WAREHOUSE_SPECIFIC_ITEMS },
   documentation: { title: 'Documentation', items: DOCUMENTATION_ITEMS },
@@ -171,7 +171,7 @@ const WAREHOUSE_DOCUMENTATION_ITEMS = [
   { id: '2.1.27', label: 'Patient Paperless Contact Cards (RHI 1080) available and provided to patients at the time of any equipment setup' },
 ];
 
-const WAREHOUSE_REVIEW_SECTIONS = {
+export const WAREHOUSE_REVIEW_SECTIONS = {
   overallFacility: { title: 'Overall Facility', items: WAREHOUSE_OVERALL_FACILITY_ITEMS },
   warehouseSpecific: { title: 'Warehouse Specific', items: WAREHOUSE_SPECIFIC_ITEMS },
   documentation: { title: 'Documentation', items: WAREHOUSE_DOCUMENTATION_ITEMS },
@@ -226,7 +226,7 @@ const VEHICLE_PLACARD_ITEMS = [
   { id: '2.6e', label: 'Record of annual DOT Inspection' },
 ];
 
-const VEHICLE_SECTIONS = {
+export const VEHICLE_SECTIONS = {
   documentation: { title: 'Documentation', items: VEHICLE_DOCUMENTATION_ITEMS },
   emergencyEquipment: { title: 'Emergency Equipment', items: VEHICLE_EMERGENCY_EQUIPMENT_ITEMS },
   storage: { title: 'Storage', items: VEHICLE_STORAGE_ITEMS },
@@ -412,10 +412,13 @@ export default function OP541Form({ locationId, quarter, existingAssessment, onS
         comments: comments,
       };
 
+      let assessmentId;
       if (existingAssessment) {
-        await updateDoc(doc(db, 'assessments', existingAssessment.id), assessmentData);
+        assessmentId = existingAssessment.id;
+        await updateDoc(doc(db, 'assessments', assessmentId), assessmentData);
       } else {
-        await addDoc(collection(db, 'assessments'), assessmentData);
+        const created = await addDoc(collection(db, 'assessments'), assessmentData);
+        assessmentId = created.id;
       }
 
       setSubmitStatus('✓ Assessment submitted successfully!');
@@ -426,7 +429,9 @@ export default function OP541Form({ locationId, quarter, existingAssessment, onS
       setComments('');
 
       if (onSubmitSuccess) {
-        onSubmitSuccess();
+        // serverTimestamp() is a sentinel until it round-trips, so hand the
+        // review view a real date for the "submitted on" line and PDF name.
+        onSubmitSuccess({ ...assessmentData, id: assessmentId, submittedAt: new Date() });
       }
 
       setTimeout(() => setSubmitStatus(''), 5000);
