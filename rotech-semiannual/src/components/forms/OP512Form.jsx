@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { db } from '../../lib/firebase';
 import { collection, addDoc, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 
-const OP512_ITEMS = [
+export const OP512_ITEMS = [
   { id: '1', label: 'Work areas clean?' },
   { id: '2', label: 'Garbage and other wastes removed from work area?' },
   { id: '3', label: 'Housekeeping maintained?' },
@@ -76,10 +76,13 @@ export default function OP512Form({ locationId, quarter, existingAssessment, onS
         comments: comments,
       };
 
+      let assessmentId;
       if (existingAssessment) {
-        await updateDoc(doc(db, 'assessments', existingAssessment.id), assessmentData);
+        assessmentId = existingAssessment.id;
+        await updateDoc(doc(db, 'assessments', assessmentId), assessmentData);
       } else {
-        await addDoc(collection(db, 'assessments'), assessmentData);
+        const created = await addDoc(collection(db, 'assessments'), assessmentData);
+        assessmentId = created.id;
       }
 
       setSubmitStatus('✓ Assessment submitted successfully!');
@@ -87,7 +90,9 @@ export default function OP512Form({ locationId, quarter, existingAssessment, onS
       setComments('');
 
       if (onSubmitSuccess) {
-        onSubmitSuccess();
+        // serverTimestamp() is a sentinel until it round-trips, so hand the
+        // review view a real date for the "submitted on" line and PDF name.
+        onSubmitSuccess({ ...assessmentData, id: assessmentId, submittedAt: new Date() });
       }
 
       setTimeout(() => setSubmitStatus(''), 5000);

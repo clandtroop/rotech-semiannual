@@ -100,6 +100,14 @@ export default function Login() {
     </div>
         </div>
 
+        {/* Best-experience callout */}
+        <div className="bg-yellow-50 border-l-4 border-yellow-500 rounded-lg p-3 mb-6 flex items-start gap-2">
+          <span className="text-lg leading-none" aria-hidden="true">⚠️</span>
+          <p className="text-sm font-semibold text-yellow-900">
+            For the best experience, please clear your browser's cache &amp; cookies before logging in.
+          </p>
+        </div>
+
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Email */}

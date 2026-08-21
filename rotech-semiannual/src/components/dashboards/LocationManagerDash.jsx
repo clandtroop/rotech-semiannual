@@ -7,6 +7,7 @@ import OP541Form from '../forms/OP541Form';
 import OP512Form from '../forms/OP512Form';
 import JC427Form from '../forms/JC427Form';
 import CommentThread from '../CommentThread';
+import SubmissionReview from '../SubmissionReview';
 import CorrectiveActionModal from '../CorrectiveActionModal';
 import { getFlaggedSections } from '../../utils/correctiveActions';
 
@@ -18,6 +19,7 @@ export default function LocationManagerDash() {
   const [commentCounts, setCommentCounts] = useState({});
   const [activeThread, setActiveThread] = useState(null); // assessmentType string
   const [correctiveTarget, setCorrectiveTarget] = useState(null);
+  const [reviewTarget, setReviewTarget] = useState(null); // assessment doc to review
   const [quarter, setQuarter] = useState('Q1-Q2 2026');
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
@@ -104,13 +106,16 @@ export default function LocationManagerDash() {
     }
   };
 
-  const handleFormSubmitSuccess = () => {
-    // Reload submissions after successful submit
-    const timer = setTimeout(() => {
+  const handleFormSubmitSuccess = (savedAssessment) => {
+    // Record the submission locally and show the read-only review (with its
+    // PDF download) right away - no full page reload needed.
+    if (savedAssessment) {
+      setSubmissions(prev => ({ ...prev, [savedAssessment.assessmentType]: savedAssessment }));
+    }
+    setTimeout(() => {
       setSelectedForm(null);
-      // Reload submissions
-      window.location.reload();
-    }, 2000);
+      if (savedAssessment) setReviewTarget(savedAssessment);
+    }, 1500);
   };
 
   const FORM_CARD_CONFIG = {
@@ -145,6 +150,13 @@ export default function LocationManagerDash() {
             {rejected && sub.rejectionReason && (
               <p className="text-xs text-red-700 mt-1">Reason: {sub.rejectionReason}</p>
             )}
+            <button
+              type="button"
+              onClick={() => setReviewTarget(sub)}
+              className="block text-xs text-blue-700 font-medium hover:underline mt-1"
+            >
+              📄 View Responses / Download PDF
+            </button>
             <button
               type="button"
               onClick={() => setActiveThread(type)}
@@ -330,6 +342,14 @@ export default function LocationManagerDash() {
           currentUserRole="locationManager"
           onClose={() => setActiveThread(null)}
           onCountChange={(assessmentId, newCount) => setCommentCounts(prev => ({ ...prev, [activeThread]: newCount }))}
+        />
+      )}
+
+      {reviewTarget && (
+        <SubmissionReview
+          assessment={reviewTarget}
+          locationName={locationData.name}
+          onClose={() => setReviewTarget(null)}
         />
       )}
 
