@@ -21,6 +21,7 @@ const FIELD_SCHEMAS = {
     { key: 'state', label: 'State', required: true, placeholder: 'e.g. CO' },
     { key: 'regionId', label: 'Region', type: 'regionSelect', required: true },
     { key: 'areaId', label: 'Area', type: 'areaSelect', required: true },
+    { key: 'jcSurveyDue', label: 'JC Survey Due', type: 'date', required: false },
   ],
 };
 
@@ -134,7 +135,7 @@ export default function RecordEditModal({ recordType, mode, initialData, regions
               <div key={field.key}>
                 <label className="block text-sm font-medium text-gray-700 mb-1">{field.label}</label>
                 <input
-                  type={field.type === 'email' ? 'email' : 'text'}
+                  type={field.type === 'email' ? 'email' : field.type === 'date' ? 'date' : 'text'}
                   value={value}
                   disabled={disabled}
                   placeholder={field.placeholder}
