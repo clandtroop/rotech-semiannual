@@ -15,7 +15,9 @@ const TONE_STYLES = {
   neutral: { fill: null, text: [55, 65, 81] },                // gray-700
 };
 
-export async function downloadSubmissionPdf(assessment, locationName) {
+// Builds the PDF and returns { doc, fileName } so callers can save it,
+// base64 it for the SharePoint archival webhook, or both.
+export async function buildSubmissionPdf(assessment, locationName) {
   // Loaded on demand so jsPDF isn't shipped to users who never download a PDF.
   const [{ jsPDF }, { default: autoTable }] = await Promise.all([
     import('jspdf'),
@@ -143,5 +145,15 @@ export async function downloadSubmissionPdf(assessment, locationName) {
     );
   }
 
-  doc.save(submissionFileName(assessment, locationName));
+  return { doc, fileName: submissionFileName(assessment, locationName) };
+}
+
+export async function downloadSubmissionPdf(assessment, locationName) {
+  const { doc, fileName } = await buildSubmissionPdf(assessment, locationName);
+  doc.save(fileName);
+}
+
+export async function submissionPdfBase64(assessment, locationName) {
+  const { doc, fileName } = await buildSubmissionPdf(assessment, locationName);
+  return { fileName, base64: doc.output('datauristring').split(',')[1] };
 }

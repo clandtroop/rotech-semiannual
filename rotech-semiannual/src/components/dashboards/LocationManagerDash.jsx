@@ -10,6 +10,7 @@ import CommentThread from '../CommentThread';
 import SubmissionReview from '../SubmissionReview';
 import CorrectiveActionModal from '../CorrectiveActionModal';
 import { getFlaggedSections } from '../../utils/correctiveActions';
+import { archiveSubmissionToSharePoint } from '../../lib/sharepointArchive';
 
 export default function LocationManagerDash() {
   const [user, setUser] = useState(null);
@@ -111,6 +112,9 @@ export default function LocationManagerDash() {
     // PDF download) right away - no full page reload needed.
     if (savedAssessment) {
       setSubmissions(prev => ({ ...prev, [savedAssessment.assessmentType]: savedAssessment }));
+      // Fire-and-forget PDF archival to SharePoint (no-op until the Power
+      // Automate flow URL is configured in lib/sharepointArchive.js).
+      archiveSubmissionToSharePoint(savedAssessment, locationData);
     }
     setTimeout(() => {
       setSelectedForm(null);
