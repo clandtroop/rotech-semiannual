@@ -49,9 +49,40 @@ these as an **encrypted secret** (not a plaintext variable):
 | `MAILJET_API_SECRET` | from step 2 |
 | `MAILJET_SENDER_EMAIL` | the verified sender address from step 2 |
 | `MAILJET_SENDER_NAME` | e.g. `Rotech Location Readiness` |
-| `NOTIFY_SHARED_SECRET` | `MNn_qsX4_vuqO-ugbIRlyAFGVJji8MuI` — a value I generated; this exact string is already wired into the app's client code, so paste it in verbatim |
+
+Then add one **plaintext variable** (not a secret — it's not sensitive, and it's
+easier to read back when checking config):
+
+| Name | Value |
+|---|---|
+| `ALLOWED_ORIGINS` | comma-separated list of origins allowed to call the Worker, e.g. `https://clandtroop.github.io`. Defaults to that same value if unset, so an unconfigured deploy fails closed rather than accepting calls from anywhere. |
 
 Save, which redeploys the Worker with the new secrets available.
+
+### A note on how the Worker authenticates callers
+
+An earlier version of this Worker checked a fixed `NOTIFY_SHARED_SECRET` header.
+**That secret has been removed** — if you set it previously, delete it; nothing
+reads it now.
+
+It was never a real control. Everything in the app's client code ships in the
+public JavaScript bundle, so the "secret" was readable by anyone who opened
+developer tools, and with it anyone could replay a comment id to re-send
+notification mail to Rotech staff as often as they liked.
+
+The Worker now requires the caller's **Firebase ID token** (`Authorization:
+Bearer <token>`) and verifies it against Google's published signing keys —
+checking the signature, that the token was issued for *this* Firebase project,
+and that it hasn't expired. It then requires the caller to be the author of the
+comment being notified on, and stamps `notifiedAt` so a replayed request sends
+nothing a second time. A token is per-user and short-lived; it cannot be lifted
+out of the bundle.
+
+`test/worker-token-verification.test.mjs` covers this: it mints tokens and
+asserts that expired ones, tokens for another Firebase project, `alg:none`
+tokens, tokens signed by an attacker's key, and tokens whose payload was swapped
+after signing are all rejected. Run it with `node test/worker-token-verification.test.mjs`
+(no emulator or credentials needed).
 
 ## 5. Send me the Worker URL
 
@@ -74,6 +105,11 @@ After I've wired in the URL and deployed:
 If step 2 shows an error instead of `200`, send me the log output — the most likely causes are a
 mistyped secret (extra whitespace, wrong field copied) or the private key's `\n` sequences getting
 mangled when pasted.
+
+A `401` means the caller's Firebase ID token was missing or rejected; a `403`
+means the signed-in user is not the author of that comment. Both are the Worker
+working as intended, not a misconfiguration — the Worker logs the specific
+reason for a rejected token.
 
 ## 7. Domain authentication (needed for reliable inbox delivery)
 

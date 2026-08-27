@@ -8,6 +8,18 @@
 // Firestore (via a Firebase service account, bypassing client-side security rules entirely) and
 // only ever emails based on what's actually stored there — the POST body can't be used to inject
 // arbitrary recipients or message content.
+//
+// AUTHENTICATION
+// The caller must present a valid Firebase ID token for this project as
+// `Authorization: Bearer <token>`, and must be the author of the comment being notified on.
+// This replaces an earlier shared-secret header: that secret shipped inside the public web
+// bundle, so anyone who viewed source could replay a commentId and re-send notification mail to
+// Rotech staff at will. An ID token is per-user, expires on its own, and is verified here
+// against Google's published signing keys — it cannot be lifted out of the bundle.
+//
+// The service account this Worker holds has full datastore scope on the whole database. Nothing
+// below widens what a caller can reach with it: the only input honoured is a comment id whose
+// stored authorEmail matches the verified token.
 
 const PROJECT_ID = 'rotech-location-readiness';
 const FIRESTORE_BASE = `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
@@ -22,18 +34,31 @@ const ROLE_LABELS = {
 
 let cachedToken = null; // { token, expiresAt } — persists across requests on a warm isolate only.
 
-function corsHeaders() {
+// Only the deployed app origins may call this. ALLOWED_ORIGINS is a
+// comma-separated Worker environment variable; it falls back to the GitHub
+// Pages origin so an unconfigured deploy fails closed rather than open.
+function allowedOrigins(env) {
+  return (env.ALLOWED_ORIGINS || 'https://clandtroop.github.io')
+    .split(',')
+    .map(o => o.trim())
+    .filter(Boolean);
+}
+
+function corsHeaders(env, request) {
+  const origin = request.headers.get('Origin');
+  const allowed = allowedOrigins(env);
   return {
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': allowed.includes(origin) ? origin : allowed[0],
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, X-Notify-Secret',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Vary': 'Origin',
   };
 }
 
-function jsonResponse(data, status = 200) {
+function jsonResponse(env, request, data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
+    headers: { ...corsHeaders(env, request), 'Content-Type': 'application/json' },
   });
 }
 
@@ -155,6 +180,160 @@ async function firestoreQuery(token, collectionId, filters) {
     .map((r) => ({ id: docIdFromName(r.document.name), ...docFieldsToObject(r.document.fields) }));
 }
 
+// ---- Firebase ID token verification -------------------------------------
+// Firebase signs ID tokens with rotating RSA keys published at the URL below.
+// We fetch and cache them by the token's `kid`, then verify signature and
+// claims ourselves — there is no Admin SDK on the Workers runtime.
+
+const GOOGLE_PUBLIC_KEYS_URL =
+  'https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com';
+
+let cachedSigningKeys = null; // { keys: {kid: pem}, expiresAt }
+
+async function getSigningKeys() {
+  const now = Math.floor(Date.now() / 1000);
+  if (cachedSigningKeys && cachedSigningKeys.expiresAt > now + 60) {
+    return cachedSigningKeys.keys;
+  }
+  const resp = await fetch(GOOGLE_PUBLIC_KEYS_URL);
+  if (!resp.ok) throw new Error('Could not fetch Google signing keys');
+
+  // Respect Google's cache-control so key rotation is picked up automatically.
+  const cacheControl = resp.headers.get('cache-control') || '';
+  const maxAge = parseInt((cacheControl.match(/max-age=(\d+)/) || [])[1] || '3600', 10);
+
+  const keys = await resp.json();
+  cachedSigningKeys = { keys, expiresAt: now + maxAge };
+  return keys;
+}
+
+function base64urlToBytes(input) {
+  const b64 = input.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+// Minimal DER reader: returns the tag, and where this element's value and the
+// element itself end.
+function readTlv(bytes, offset) {
+  const tag = bytes[offset];
+  let i = offset + 1;
+  let length = bytes[i++];
+  if (length & 0x80) {
+    const byteCount = length & 0x7f;
+    length = 0;
+    for (let k = 0; k < byteCount; k++) length = (length << 8) | bytes[i++];
+  }
+  return { tag, valueStart: i, end: i + length };
+}
+
+const RSA_ENCRYPTION_OID = [0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01];
+
+function containsRsaOid(bytes, from, to) {
+  outer: for (let i = from; i <= to - RSA_ENCRYPTION_OID.length; i++) {
+    for (let j = 0; j < RSA_ENCRYPTION_OID.length; j++) {
+      if (bytes[i + j] !== RSA_ENCRYPTION_OID[j]) continue outer;
+    }
+    return true;
+  }
+  return false;
+}
+
+function base64ToBytes(b64) {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+// The x509 endpoint returns certificates; Web Crypto wants the
+// SubjectPublicKeyInfo. Walk the certificate's DER structure and slice out
+// exactly that element — searching for the RSA OID and taking everything after
+// it would also drag in the certificate's signature, which importKey rejects.
+function certToSpki(pem) {
+  const der = base64ToBytes(
+    pem.replace(/-----(BEGIN|END) CERTIFICATE-----/g, '').replace(/\s+/g, '')
+  );
+
+  const certificate = readTlv(der, 0);                         // Certificate ::= SEQUENCE
+  const tbsCertificate = readTlv(der, certificate.valueStart); // TBSCertificate ::= SEQUENCE
+
+  // SubjectPublicKeyInfo is the child SEQUENCE whose AlgorithmIdentifier
+  // carries the rsaEncryption OID. Walking to it by structure keeps this
+  // correct whether or not the optional [0] version field is present.
+  let offset = tbsCertificate.valueStart;
+  while (offset < tbsCertificate.end) {
+    const child = readTlv(der, offset);
+    if (child.tag === 0x30 && containsRsaOid(der, child.valueStart, child.end)) {
+      return der.slice(offset, child.end).buffer;
+    }
+    offset = child.end;
+  }
+  throw new Error('Could not locate SubjectPublicKeyInfo in certificate');
+}
+
+// Verifies a Firebase ID token and returns its claims, or throws.
+async function verifyIdToken(idToken) {
+  const parts = idToken.split('.');
+  if (parts.length !== 3) throw new Error('Malformed token');
+
+  const header = JSON.parse(new TextDecoder().decode(base64urlToBytes(parts[0])));
+  const claims = JSON.parse(new TextDecoder().decode(base64urlToBytes(parts[1])));
+
+  if (header.alg !== 'RS256') throw new Error('Unexpected token algorithm');
+
+  const keys = await getSigningKeys();
+  const cert = keys[header.kid];
+  if (!cert) throw new Error('Unknown token signing key');
+
+  const cryptoKey = await crypto.subtle.importKey(
+    'spki',
+    certToSpki(cert),
+    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+    false,
+    ['verify']
+  );
+
+  const valid = await crypto.subtle.verify(
+    'RSASSA-PKCS1-v1_5',
+    cryptoKey,
+    base64urlToBytes(parts[2]),
+    new TextEncoder().encode(`${parts[0]}.${parts[1]}`)
+  );
+  if (!valid) throw new Error('Bad token signature');
+
+  // A valid signature is not enough: the token must be for THIS project and
+  // still current, or a token minted for some other Firebase project would be
+  // accepted here.
+  const now = Math.floor(Date.now() / 1000);
+  if (claims.aud !== PROJECT_ID) throw new Error('Token audience mismatch');
+  if (claims.iss !== `https://securetoken.google.com/${PROJECT_ID}`) {
+    throw new Error('Token issuer mismatch');
+  }
+  if (!claims.sub) throw new Error('Token has no subject');
+  if (typeof claims.exp !== 'number' || claims.exp <= now) throw new Error('Token expired');
+  if (typeof claims.iat === 'number' && claims.iat > now + 300) throw new Error('Token issued in the future');
+  if (!claims.email) throw new Error('Token has no email');
+
+  return claims;
+}
+
+// Stamps notifiedAt on the comment so a replayed request cannot re-send mail.
+// updateMask keeps this to the one field — the comment body is never rewritten.
+async function markNotified(token, commentId) {
+  const url = `${FIRESTORE_BASE}/submission_comments/${commentId}` +
+    '?updateMask.fieldPaths=notifiedAt';
+  const resp = await fetch(url, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields: { notifiedAt: { timestampValue: new Date().toISOString() } } }),
+  });
+  if (!resp.ok) console.error('Could not mark comment notified:', await resp.text());
+}
+
 async function sendViaMailjet(env, recipients, subject, textBody) {
   const messages = recipients.map((email) => ({
     From: { Email: env.MAILJET_SENDER_EMAIL, Name: env.MAILJET_SENDER_NAME || 'Rotech Location Readiness' },
@@ -179,26 +358,36 @@ async function sendViaMailjet(env, recipients, subject, textBody) {
 export default {
   async fetch(request, env) {
     if (request.method === 'OPTIONS') {
-      return new Response(null, { headers: corsHeaders() });
+      return new Response(null, { headers: corsHeaders(env, request) });
     }
     if (request.method !== 'POST') {
-      return jsonResponse({ ok: false, error: 'Method not allowed' }, 405);
+      return jsonResponse(env, request, { ok: false, error: 'Method not allowed' }, 405);
     }
 
-    const secret = request.headers.get('X-Notify-Secret');
-    if (!secret || secret !== env.NOTIFY_SHARED_SECRET) {
-      return jsonResponse({ ok: false, error: 'Unauthorized' }, 401);
+    // Caller must present a valid Firebase ID token for this project.
+    const authHeader = request.headers.get('Authorization') || '';
+    const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+    if (!idToken) {
+      return jsonResponse(env, request, { ok: false, error: 'Unauthorized' }, 401);
+    }
+
+    let claims;
+    try {
+      claims = await verifyIdToken(idToken);
+    } catch (err) {
+      console.error('ID token rejected:', String(err));
+      return jsonResponse(env, request, { ok: false, error: 'Unauthorized' }, 401);
     }
 
     let body;
     try {
       body = await request.json();
     } catch {
-      return jsonResponse({ ok: false, error: 'Invalid JSON' }, 400);
+      return jsonResponse(env, request, { ok: false, error: 'Invalid JSON' }, 400);
     }
     const commentId = body && body.commentId;
     if (!commentId || typeof commentId !== 'string') {
-      return jsonResponse({ ok: false, error: 'Missing commentId' }, 400);
+      return jsonResponse(env, request, { ok: false, error: 'Missing commentId' }, 400);
     }
 
     try {
@@ -206,7 +395,21 @@ export default {
 
       const comment = await firestoreGet(token, `submission_comments/${commentId}`);
       if (!comment) {
-        return jsonResponse({ ok: false, error: 'Comment not found' }, 404);
+        return jsonResponse(env, request, { ok: false, error: 'Comment not found' }, 404);
+      }
+
+      // You may only trigger notification for a comment you actually wrote.
+      // Without this, any signed-in user could still walk arbitrary comment ids
+      // and re-send mail for all of them.
+      const callerEmail = String(claims.email).toLowerCase();
+      if (String(comment.authorEmail || '').toLowerCase() !== callerEmail) {
+        return jsonResponse(env, request, { ok: false, error: 'Forbidden' }, 403);
+      }
+
+      // Notify once per comment. A repeat call is a no-op rather than another
+      // round of email to every participant in the thread.
+      if (comment.notifiedAt) {
+        return jsonResponse(env, request, { ok: true, notified: 0, reason: 'already notified' });
       }
 
       const [threadComments, lmUsers, location] = await Promise.all([
@@ -226,7 +429,7 @@ export default {
       recipients.delete(comment.authorEmail);
 
       if (recipients.size === 0) {
-        return jsonResponse({ ok: true, notified: 0 });
+        return jsonResponse(env, request, { ok: true, notified: 0 });
       }
 
       const locationLabel = location ? `${location.name} (#${location.lawsonNumber})` : comment.locationId;
@@ -239,10 +442,14 @@ export default {
 
       await sendViaMailjet(env, Array.from(recipients), subject, textBody);
 
-      return jsonResponse({ ok: true, notified: recipients.size });
+      // Mark it notified so a replay cannot re-send the same thread's mail.
+      await markNotified(token, commentId);
+
+      return jsonResponse(env, request, { ok: true, notified: recipients.size });
     } catch (err) {
       console.error('notify-comment error', err);
-      return jsonResponse({ ok: false, error: String(err) }, 500);
+      // Don't echo internal error text back to the caller.
+      return jsonResponse(env, request, { ok: false, error: 'Internal error' }, 500);
     }
   },
 };
