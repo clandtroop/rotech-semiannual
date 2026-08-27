@@ -378,7 +378,7 @@ export default function AccreditationSpecialistDash() {
       <div className="flex flex-col items-center gap-1">
         <button
           type="button"
-          onClick={() => setActiveThread({ assessmentId: sub.id, locationId: location.id, assessmentType: sub.assessmentType, locationName: location.name })}
+          onClick={() => setActiveThread({ assessmentId: sub.id, locationId: location.id, areaId: location.areaId ?? null, regionId: location.regionId ?? null, assessmentType: sub.assessmentType, locationName: location.name })}
           className={`inline-block px-2 py-1 rounded text-xs font-semibold ${
             rejected ? 'bg-red-100 text-red-700 hover:bg-red-200' : 'bg-green-100 text-green-700 hover:bg-green-200'
           }`}
@@ -395,7 +395,7 @@ export default function AccreditationSpecialistDash() {
         {flagged.length > 0 && (
           <button
             type="button"
-            onClick={() => setCorrectiveTarget({ assessment: sub, locationId: location.id, assessmentType: sub.assessmentType, locationName: location.name })}
+            onClick={() => setCorrectiveTarget({ assessment: sub, locationId: location.id, areaId: location.areaId ?? null, regionId: location.regionId ?? null, assessmentType: sub.assessmentType, locationName: location.name })}
             className="text-xs text-yellow-700 font-semibold hover:underline"
           >
             ⚠ {flagged.length} CA
@@ -404,7 +404,7 @@ export default function AccreditationSpecialistDash() {
         {!rejected && (
           <button
             type="button"
-            onClick={() => setRejectTarget({ assessment: sub, locationId: location.id, assessmentType: sub.assessmentType, locationName: location.name })}
+            onClick={() => setRejectTarget({ assessment: sub, locationId: location.id, areaId: location.areaId ?? null, regionId: location.regionId ?? null, assessmentType: sub.assessmentType, locationName: location.name })}
             className="text-xs text-red-600 hover:underline"
           >
             Reject
@@ -881,6 +881,8 @@ export default function AccreditationSpecialistDash() {
         <CommentThread
           assessmentId={activeThread.assessmentId}
           locationId={activeThread.locationId}
+          areaId={activeThread.areaId ?? null}
+          regionId={activeThread.regionId ?? null}
           assessmentType={activeThread.assessmentType}
           quarter={quarter}
           locationName={activeThread.locationName}
@@ -903,6 +905,8 @@ export default function AccreditationSpecialistDash() {
         <RejectAssessmentModal
           assessment={rejectTarget.assessment}
           locationId={rejectTarget.locationId}
+          areaId={rejectTarget.areaId ?? null}
+          regionId={rejectTarget.regionId ?? null}
           assessmentType={rejectTarget.assessmentType}
           quarter={quarter}
           locationName={rejectTarget.locationName}
@@ -917,6 +921,8 @@ export default function AccreditationSpecialistDash() {
         <CorrectiveActionModal
           assessment={correctiveTarget.assessment}
           locationId={correctiveTarget.locationId}
+          areaId={correctiveTarget.areaId ?? null}
+          regionId={correctiveTarget.regionId ?? null}
           assessmentType={correctiveTarget.assessmentType}
           quarter={quarter}
           locationName={correctiveTarget.locationName}

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
 import { collection, query, where, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
 import { notifyNewComment } from '../lib/notifyConfig';
+import { scopeClauses } from '../lib/scope';
 
 const ROLE_LABELS = {
   locationManager: { label: 'Location Manager', badge: 'bg-gray-200 text-gray-800' },
@@ -15,7 +16,7 @@ function formatTimestamp(ts) {
   return ts.toDate().toLocaleString();
 }
 
-export default function CommentThread({ assessmentId, locationId, assessmentType, quarter, locationName, currentUserEmail, currentUserRole, onClose, onCountChange }) {
+export default function CommentThread({ assessmentId, locationId, areaId, regionId, scope, assessmentType, quarter, locationName, currentUserEmail, currentUserRole, onClose, onCountChange }) {
   const [comments, setComments] = useState([]);
   const [newText, setNewText] = useState('');
   const [loading, setLoading] = useState(true);
@@ -25,7 +26,14 @@ export default function CommentThread({ assessmentId, locationId, assessmentType
   useEffect(() => {
     const loadComments = async () => {
       try {
-        const q = query(collection(db, 'submission_comments'), where('assessmentId', '==', assessmentId));
+        // The scope clause is not redundant with assessmentId: firestore.rules
+        // grants reads on the caller's own scope field, and Firestore rejects
+        // any query it cannot prove stays inside that grant.
+        const q = query(
+          collection(db, 'submission_comments'),
+          where('assessmentId', '==', assessmentId),
+          ...scopeClauses(scope)
+        );
         const snapshot = await getDocs(q);
         const items = [];
         snapshot.forEach(doc => items.push({ id: doc.id, ...doc.data() }));
@@ -39,7 +47,7 @@ export default function CommentThread({ assessmentId, locationId, assessmentType
     };
 
     loadComments();
-  }, [assessmentId]);
+  }, [assessmentId, scope?.field, scope?.value]);
 
   const handlePost = async (e) => {
     e.preventDefault();
@@ -51,6 +59,8 @@ export default function CommentThread({ assessmentId, locationId, assessmentType
       const payload = {
         assessmentId,
         locationId,
+        areaId: areaId ?? null,
+        regionId: regionId ?? null,
         assessmentType,
         quarter,
         authorEmail: currentUserEmail,

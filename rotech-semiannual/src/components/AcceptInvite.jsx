@@ -11,6 +11,24 @@ const ROLE_ROUTES = {
   accreditationSpecialist: '/accreditation',
 };
 
+// Firebase's own floor is 6 characters, which is well under any corporate
+// password standard. The invite flow is the only place this app sets a
+// password, so this is where the policy has to live.
+const MIN_PASSWORD_LENGTH = 12;
+
+function passwordProblem(pw) {
+  if (pw.length < MIN_PASSWORD_LENGTH) {
+    return `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`;
+  }
+  if (!/[a-z]/.test(pw) || !/[A-Z]/.test(pw)) {
+    return 'Password must include both uppercase and lowercase letters.';
+  }
+  if (!/[0-9]/.test(pw)) {
+    return 'Password must include at least one number.';
+  }
+  return '';
+}
+
 const ROLE_LABELS = {
   locationManager: 'Location Manager',
   areaManager: 'Area Manager',
@@ -44,8 +62,13 @@ export default function AcceptInvite() {
           setLoadError('This invite link is invalid.');
         } else {
           const data = inviteDoc.data();
+          const expiresAt = data.expiresAt?.toDate?.();
           if (data.status !== 'pending') {
             setLoadError('This invite has already been used or was revoked.');
+          } else if (!expiresAt || expiresAt <= new Date()) {
+            // Also enforced in firestore.rules — this is just the friendly
+            // version of the rejection the server would issue anyway.
+            setLoadError('This invite link has expired. Ask your administrator to send a new one.');
           } else {
             setInvite(data);
           }
@@ -64,8 +87,9 @@ export default function AcceptInvite() {
     e.preventDefault();
     setSubmitError('');
 
-    if (password.length < 6) {
-      setSubmitError('Password must be at least 6 characters.');
+    const problem = passwordProblem(password);
+    if (problem) {
+      setSubmitError(problem);
       return;
     }
     if (password !== confirmPassword) {
@@ -123,6 +147,9 @@ export default function AcceptInvite() {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Password</label>
+              <p className="text-xs text-gray-500 mb-2">
+                At least {MIN_PASSWORD_LENGTH} characters, with upper and lower case letters and a number.
+              </p>
               <input
                 type="password"
                 value={password}

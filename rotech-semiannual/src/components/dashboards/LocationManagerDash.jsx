@@ -10,10 +10,12 @@ import CommentThread from '../CommentThread';
 import SubmissionReview from '../SubmissionReview';
 import CorrectiveActionModal from '../CorrectiveActionModal';
 import { getFlaggedSections } from '../../utils/correctiveActions';
+import { loadProfile, scopeFor, scopeClauses } from '../../lib/scope';
 
 export default function LocationManagerDash() {
   const [user, setUser] = useState(null);
   const [locationData, setLocationData] = useState(null);
+  const [scope, setScope] = useState(null);
   const [selectedForm, setSelectedForm] = useState(null);
   const [submissions, setSubmissions] = useState({});
   const [commentCounts, setCommentCounts] = useState({});
@@ -36,8 +38,9 @@ export default function LocationManagerDash() {
         setUser(currentUser);
 
         // Get user profile from Firestore
-        const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
-        const userData = userDoc.data();
+        const userData = await loadProfile(currentUser.uid);
+        const userScope = scopeFor(userData);
+        setScope(userScope);
 
         if (!userData || !userData.locationId) {
           alert('Location not assigned. Contact your administrator.');
@@ -58,7 +61,7 @@ export default function LocationManagerDash() {
         // Get existing submissions for this location
         const q = query(
           collection(db, 'assessments'),
-          where('locationId', '==', userData.locationId),
+          ...scopeClauses(userScope),
           where('quarter', '==', quarter)
         );
         const querySnapshot = await getDocs(q);
@@ -76,7 +79,7 @@ export default function LocationManagerDash() {
         // Get comment counts for this location's submissions this quarter
         const commentsQuery = query(
           collection(db, 'submission_comments'),
-          where('locationId', '==', userData.locationId),
+          ...scopeClauses(userScope),
           where('quarter', '==', quarter)
         );
         const commentsSnapshot = await getDocs(commentsQuery);
@@ -306,6 +309,8 @@ export default function LocationManagerDash() {
             {selectedForm === 'OP541' && (
               <OP541Form
                 locationId={locationData.lawsonNumber}
+                areaId={locationData.areaId}
+                regionId={locationData.regionId}
                 quarter={quarter}
                 existingAssessment={submissions.OP541?.status === 'rejected' ? submissions.OP541 : null}
                 onSubmitSuccess={handleFormSubmitSuccess}
@@ -314,6 +319,8 @@ export default function LocationManagerDash() {
             {selectedForm === 'OP512' && (
               <OP512Form
                 locationId={locationData.lawsonNumber}
+                areaId={locationData.areaId}
+                regionId={locationData.regionId}
                 quarter={quarter}
                 existingAssessment={submissions.OP512?.status === 'rejected' ? submissions.OP512 : null}
                 onSubmitSuccess={handleFormSubmitSuccess}
@@ -322,6 +329,8 @@ export default function LocationManagerDash() {
             {selectedForm === 'JC427' && (
               <JC427Form
                 locationId={locationData.lawsonNumber}
+                areaId={locationData.areaId}
+                regionId={locationData.regionId}
                 quarter={quarter}
                 existingAssessment={submissions.JC427?.status === 'rejected' ? submissions.JC427 : null}
                 onSubmitSuccess={handleFormSubmitSuccess}
@@ -335,6 +344,9 @@ export default function LocationManagerDash() {
         <CommentThread
           assessmentId={submissions[activeThread].id}
           locationId={locationData.lawsonNumber}
+          areaId={locationData.areaId}
+          regionId={locationData.regionId}
+          scope={scope}
           assessmentType={activeThread}
           quarter={quarter}
           locationName={locationData.name}
@@ -357,6 +369,9 @@ export default function LocationManagerDash() {
         <CorrectiveActionModal
           assessment={correctiveTarget.assessment}
           locationId={locationData.lawsonNumber}
+          areaId={locationData.areaId}
+          regionId={locationData.regionId}
+          scope={scope}
           assessmentType={correctiveTarget.assessmentType}
           quarter={quarter}
           locationName={locationData.name}

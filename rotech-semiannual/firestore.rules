@@ -2,18 +2,26 @@ rules_version = '2';
 
 // Rotech Location Readiness Platform — Firestore security rules
 //
-// Design notes (see repo discussion / TODO for full context):
-// - Deny by default. All reads require an authenticated user.
-// - True per-region READ isolation on `assessments` / `submission_comments` is intentionally
-//   NOT implemented here: neither collection carries a regionId/areaId field, and several
-//   dashboards already do full unfiltered collection reads that would break under a naive
-//   region-restricted read rule. Closing that gap requires a data-model change (denormalizing
-//   region/area onto every assessment/comment doc) and is tracked separately, not attempted here.
-// - What this DOES enforce server-side: authentication is required for every read, and writes
-//   are restricted to the role that is actually supposed to perform them client-side today —
-//   turning today's UI-only checks into real, unbypassable rules.
-// - Account creation is invite-gated: a `users/{uid}` doc can only be created if it references a
-//   matching, still-pending `invites/{token}` doc (checked via a single get()).
+// Design notes:
+// - Deny by default. Every read requires an authenticated user WITH a
+//   users/{uid} profile; an authenticated identity without one reads nothing.
+// - Reads are scoped to the caller's role: a Location Manager sees only their
+//   own location, an Area Manager only their area, a Region Admin only their
+//   region, and the Accreditation Specialist company-wide. This is enforced
+//   here, not just in the UI.
+// - How the scoping works: Firestore evaluates a rule against a *query*, not
+//   against the documents it would return, so a rule can only restrict reads
+//   on a field the query itself filters on. That is why assessments,
+//   submission_comments and corrective_action_logs each carry locationId,
+//   areaId and regionId denormalized onto the document, and why every client
+//   query filters on the caller's own scope field (see src/lib/scope.js). The
+//   two halves must stay in step: drop the client filter and Firestore rejects
+//   the query outright; loosen a rule here and the isolation is gone.
+// - The denormalized scope fields are re-derived server-side from
+//   locations/{locationId} on every create, so a tampered client cannot file a
+//   record into another area or region to make it readable there.
+// - Account creation is invite-gated: a users/{uid} doc can only be created if
+//   it references a matching, still-pending, unexpired invites/{token} doc.
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -26,22 +34,28 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
+    function hasProfile() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
     function myRole() {
       return myData().role;
     }
 
     function isAccreditationSpecialist() {
-      return isSignedIn() && myRole() == 'accreditationSpecialist';
+      return hasProfile() && myRole() == 'accreditationSpecialist';
     }
 
     function isRegionAdminForRegion(regionId) {
-      return isSignedIn() && myRole() == 'regionAdmin' && myData().regionId == regionId;
+      return hasProfile() && myRole() == 'regionAdmin' && myData().regionId == regionId;
     }
 
-    // Region Admin acting on an assessment: assessments don't carry regionId directly, so
-    // resolve it via the location the assessment belongs to.
+    // Region Admin acting on an assessment: resolve the region via the
+    // location the assessment belongs to, for the single-document paths where
+    // a get() is allowed.
     function isRegionAdminForLocation(locationId) {
-      return isSignedIn() && myRole() == 'regionAdmin'
+      return hasProfile() && myRole() == 'regionAdmin'
         && get(/databases/$(database)/documents/locations/$(locationId)).data.regionId == myData().regionId;
     }
 
@@ -49,10 +63,33 @@ service cloud.firestore {
       return role in ['locationManager', 'areaManager', 'regionAdmin', 'accreditationSpecialist'];
     }
 
-    // Cross-checks a users/{uid} create against the invite it claims to come from.
+    // The read boundary for every role-scoped collection. Each branch pins a
+    // different denormalized field, which is what the matching client query
+    // must filter on.
+    function inMyScope(data) {
+      return hasProfile() && (
+        myRole() == 'accreditationSpecialist'
+        || (myRole() == 'locationManager' && data.locationId == myData().locationId)
+        || (myRole() == 'areaManager'     && data.areaId     == myData().areaId)
+        || (myRole() == 'regionAdmin'     && data.regionId   == myData().regionId)
+      );
+    }
+
+    // Re-derives the scope fields from the location itself, so they can be
+    // trusted as a read boundary rather than being whatever the client sent.
+    function scopeMatchesLocation(data) {
+      return exists(/databases/$(database)/documents/locations/$(data.locationId))
+        && data.areaId == get(/databases/$(database)/documents/locations/$(data.locationId)).data.areaId
+        && data.regionId == get(/databases/$(database)/documents/locations/$(data.locationId)).data.regionId;
+    }
+
+    // Cross-checks a users/{uid} create against the invite it claims to come
+    // from. Invites expire, so a leaked link stops working on its own.
     function inviteAuthorizes(inviteToken, data) {
       let invite = get(/databases/$(database)/documents/invites/$(inviteToken)).data;
       return invite.status == 'pending'
+        && invite.expiresAt is timestamp
+        && request.time < invite.expiresAt
         && invite.email == request.auth.token.email
         && invite.role == data.role
         && invite.locationId == data.locationId
@@ -77,46 +114,57 @@ service cloud.firestore {
         && request.resource.data.inviteToken is string
         && inviteAuthorizes(request.resource.data.inviteToken, request.resource.data);
 
+      // A user must never be able to edit their own role or scope — that would
+      // be a one-line privilege escalation past every rule above.
       allow update, delete: if isAccreditationSpecialist()
         || isRegionAdminForRegion(resource.data.regionId);
     }
 
     // ---- regions / area_managers / locations ----
-    // Read: any authenticated user (matches every dashboard's current query pattern).
-    // Write: Accreditation Specialist only (matches RecordEditModal + importData.js today).
+    // Reference data every dashboard needs to render. Readable by any user
+    // with a profile; writable only by the Accreditation Specialist (matches
+    // RecordEditModal + importData.js).
     match /regions/{regionId} {
-      allow read: if isSignedIn();
+      allow read: if hasProfile();
       allow write: if isAccreditationSpecialist();
     }
 
     match /area_managers/{areaManagerId} {
-      allow read: if isSignedIn();
+      allow read: if hasProfile();
       allow write: if isAccreditationSpecialist();
     }
 
     match /locations/{locationId} {
-      allow read: if isSignedIn();
+      allow read: if hasProfile();
       allow write: if isAccreditationSpecialist();
     }
 
     // ---- assessments ----
+    // Carries the JC 427 personnel data, so this is the collection the read
+    // scoping matters most for.
     match /assessments/{assessmentId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn()
+      allow read: if inMyScope(resource.data);
+
+      allow create: if hasProfile()
         && myRole() == 'locationManager'
         && request.resource.data.locationId == myData().locationId
-        && request.resource.data.status == 'submitted';
+        && request.resource.data.status == 'submitted'
+        && scopeMatchesLocation(request.resource.data);
 
       // Two update paths only:
-      // 1. The location manager fixing and resubmitting an assessment that was rejected.
-      // 2. Accreditation Specialist / the location's Region Admin rejecting a submitted one.
-      // Nothing else may update a submitted assessment.
-      allow update: if isSignedIn() && (
+      // 1. The location manager fixing and resubmitting a rejected assessment.
+      // 2. Accreditation Specialist / the location's Region Admin rejecting a
+      //    submitted one.
+      // Nothing else may update a submitted assessment, and neither path may
+      // move a record into a different location, area or region.
+      allow update: if hasProfile() && (
         (
           myRole() == 'locationManager'
           && resource.data.locationId == myData().locationId
           && resource.data.status == 'rejected'
           && request.resource.data.locationId == resource.data.locationId
+          && request.resource.data.areaId == resource.data.areaId
+          && request.resource.data.regionId == resource.data.regionId
           && request.resource.data.assessmentType == resource.data.assessmentType
           && request.resource.data.quarter == resource.data.quarter
           && request.resource.data.status == 'submitted'
@@ -125,6 +173,9 @@ service cloud.firestore {
           (isAccreditationSpecialist() || isRegionAdminForLocation(resource.data.locationId))
           && resource.data.status == 'submitted'
           && request.resource.data.status == 'rejected'
+          && request.resource.data.locationId == resource.data.locationId
+          && request.resource.data.areaId == resource.data.areaId
+          && request.resource.data.regionId == resource.data.regionId
           && request.resource.data.rejectionReason is string
           && request.resource.data.rejectionReason.size() > 0
         )
@@ -132,50 +183,72 @@ service cloud.firestore {
     }
 
     // ---- submission_comments ----
+    // Append-only. Same read scoping as the assessment being commented on —
+    // comment text routinely quotes the finding it is about.
     match /submission_comments/{commentId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn()
+      allow read: if inMyScope(resource.data);
+
+      allow create: if hasProfile()
         && request.resource.data.authorEmail == request.auth.token.email
-        && request.resource.data.authorRole == myRole();
-      // Comments are otherwise append-only (no update/create-spoofing), but Accreditation
-      // Specialist can delete a comment (e.g. test data, something posted in error) as part of
-      // their existing full-access role.
+        && request.resource.data.authorRole == myRole()
+        && inMyScope(request.resource.data)
+        && scopeMatchesLocation(request.resource.data);
+
+      // Otherwise append-only; the Accreditation Specialist can delete a
+      // comment (test data, something posted in error) as part of their
+      // existing full-access role.
       allow delete: if isAccreditationSpecialist();
     }
 
     // ---- corrective_action_logs ----
-    // Same shape/permissions as submission_comments: append-only records of corrective action
-    // documentation logged against a flagged section of an assessment.
+    // Same shape and permissions as submission_comments: append-only records
+    // of corrective action documented against a flagged section.
     match /corrective_action_logs/{logId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn()
+      allow read: if inMyScope(resource.data);
+
+      allow create: if hasProfile()
         && request.resource.data.authorEmail == request.auth.token.email
-        && request.resource.data.authorRole == myRole();
+        && request.resource.data.authorRole == myRole()
+        && inMyScope(request.resource.data)
+        && scopeMatchesLocation(request.resource.data);
+
       allow delete: if isAccreditationSpecialist();
     }
 
     // ---- invites ----
     match /invites/{token} {
-      // Unauthenticated get-by-token so a brand-new invitee (no account yet) can load their own
-      // invite from the link. `list` is NOT allowed unauthenticated, so invites can't be enumerated.
+      // Unauthenticated get-by-token so a brand-new invitee (no account yet)
+      // can load their own invite from the link. `list` is NOT allowed
+      // unauthenticated, so invites cannot be enumerated, and the token is a
+      // v4 UUID rather than a guessable id.
       allow get: if true;
 
-      allow list: if isAccreditationSpecialist() || (isSignedIn() && myRole() == 'regionAdmin');
+      allow list: if isAccreditationSpecialist()
+        || (hasProfile() && myRole() == 'regionAdmin');
 
-      allow create: if isSignedIn() && (
-        (isAccreditationSpecialist() && isValidRole(request.resource.data.role))
-        || (
-          myRole() == 'regionAdmin'
-          && request.resource.data.role in ['locationManager', 'areaManager']
-          && request.resource.data.regionId == myData().regionId
-          && request.resource.data.invitedByUid == request.auth.uid
-        )
-      );
+      // Every invite must carry an expiry, and it may not be further out than
+      // the INVITE_TTL_DAYS the client uses (14 days, +1 day of clock slack).
+      allow create: if hasProfile()
+        && request.resource.data.status == 'pending'
+        && request.resource.data.expiresAt is timestamp
+        && request.resource.data.expiresAt > request.time
+        && request.resource.data.expiresAt < request.time + duration.value(15, 'd')
+        && (
+          (isAccreditationSpecialist() && isValidRole(request.resource.data.role))
+          || (
+            myRole() == 'regionAdmin'
+            && request.resource.data.role in ['locationManager', 'areaManager']
+            && request.resource.data.regionId == myData().regionId
+            && request.resource.data.invitedByUid == request.auth.uid
+          )
+        );
 
       allow update: if isSignedIn() && (
-        // The invitee accepting their own invite.
+        // The invitee accepting their own invite, before it expires.
         (request.auth.token.email == resource.data.email
           && resource.data.status == 'pending'
+          && resource.data.expiresAt is timestamp
+          && request.time < resource.data.expiresAt
           && request.resource.data.status == 'accepted')
         // An admin revoking a pending invite they're allowed to manage.
         || (

@@ -3,7 +3,7 @@ import { db } from '../lib/firebase';
 import { doc, updateDoc, serverTimestamp, collection, addDoc } from 'firebase/firestore';
 import { notifyNewComment } from '../lib/notifyConfig';
 
-export default function RejectAssessmentModal({ assessment, locationId, assessmentType, quarter, locationName, currentUserEmail, currentUserRole, onClose, onRejected }) {
+export default function RejectAssessmentModal({ assessment, locationId, areaId, regionId, assessmentType, quarter, locationName, currentUserEmail, currentUserRole, onClose, onRejected }) {
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -27,6 +27,8 @@ export default function RejectAssessmentModal({ assessment, locationId, assessme
       const commentRef = await addDoc(collection(db, 'submission_comments'), {
         assessmentId: assessment.id,
         locationId,
+        areaId: areaId ?? null,
+        regionId: regionId ?? null,
         assessmentType,
         quarter,
         authorEmail: currentUserEmail,

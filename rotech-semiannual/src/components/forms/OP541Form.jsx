@@ -314,7 +314,7 @@ function ChecklistSection({ title, items, values, onChange, onShowMada }) {
   );
 }
 
-export default function OP541Form({ locationId, quarter, existingAssessment, onSubmitSuccess }) {
+export default function OP541Form({ locationId, areaId, regionId, quarter, existingAssessment, onSubmitSuccess }) {
   const [activeTab, setActiveTab] = useState('facility');
   const [facilityResponses, setFacilityResponses] = useState(() => (
     existingAssessment?.facilityReview || createEmptySectionResponses(FACILITY_REVIEW_SECTIONS)
@@ -402,6 +402,11 @@ export default function OP541Form({ locationId, quarter, existingAssessment, onS
 
       const assessmentData = {
         locationId: locationId,
+        // Scope fields, denormalized so Area Manager / Region Admin dashboards
+        // can query their own slice and firestore.rules can enforce it. Both
+        // are re-checked server-side against locations/{locationId}.
+        areaId: areaId ?? null,
+        regionId: regionId ?? null,
         assessmentType: 'OP541',
         quarter: quarter,
         status: 'submitted',

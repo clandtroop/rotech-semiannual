@@ -37,7 +37,7 @@ export const OP512_ITEMS = [
   { id: '32', label: 'All electrically operated tools properly grounded or double insulated?' },
 ];
 
-export default function OP512Form({ locationId, quarter, existingAssessment, onSubmitSuccess }) {
+export default function OP512Form({ locationId, areaId, regionId, quarter, existingAssessment, onSubmitSuccess }) {
   const [responses, setResponses] = useState(() => existingAssessment?.responses || {});
   const [comments, setComments] = useState(() => existingAssessment?.comments || '');
   const [loading, setLoading] = useState(false);
@@ -68,6 +68,11 @@ export default function OP512Form({ locationId, quarter, existingAssessment, onS
       // otherwise create a new one.
       const assessmentData = {
         locationId: locationId,
+        // Scope fields, denormalized so Area Manager / Region Admin dashboards
+        // can query their own slice and firestore.rules can enforce it. Both
+        // are re-checked server-side against locations/{locationId}.
+        areaId: areaId ?? null,
+        regionId: regionId ?? null,
         assessmentType: 'OP512',
         quarter: quarter,
         status: 'submitted',

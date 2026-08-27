@@ -342,7 +342,7 @@ function CompetencySection({ title, comment, items, values, onChange, expected, 
   );
 }
 
-export default function JC427Form({ locationId, quarter, existingAssessment, onSubmitSuccess }) {
+export default function JC427Form({ locationId, areaId, regionId, quarter, existingAssessment, onSubmitSuccess }) {
   const [employees, setEmployees] = useState(() => (
     existingAssessment?.employees?.length
       ? existingAssessment.employees.map(normalizeEmployee)
@@ -445,6 +445,11 @@ export default function JC427Form({ locationId, quarter, existingAssessment, onS
 
       const assessmentData = {
         locationId: locationId,
+        // Scope fields, denormalized so Area Manager / Region Admin dashboards
+        // can query their own slice and firestore.rules can enforce it. Both
+        // are re-checked server-side against locations/{locationId}.
+        areaId: areaId ?? null,
+        regionId: regionId ?? null,
         assessmentType: 'JC427',
         quarter: quarter,
         status: 'submitted',

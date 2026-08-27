@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
 import { collection, query, where, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
 import { getFlaggedSections, CORRECTIVE_ACTION_THRESHOLD } from '../utils/correctiveActions';
+import { scopeClauses } from '../lib/scope';
 
 const ROLE_LABELS = {
   locationManager: { label: 'Location Manager', badge: 'bg-gray-200 text-gray-800' },
@@ -15,7 +16,7 @@ function formatTimestamp(ts) {
   return ts.toDate().toLocaleString();
 }
 
-export default function CorrectiveActionModal({ assessment, locationId, assessmentType, quarter, locationName, currentUserEmail, currentUserRole, onClose }) {
+export default function CorrectiveActionModal({ assessment, locationId, areaId, regionId, scope, assessmentType, quarter, locationName, currentUserEmail, currentUserRole, onClose }) {
   const flaggedSections = getFlaggedSections(assessment);
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -27,7 +28,13 @@ export default function CorrectiveActionModal({ assessment, locationId, assessme
   useEffect(() => {
     const loadLogs = async () => {
       try {
-        const q = query(collection(db, 'corrective_action_logs'), where('assessmentId', '==', assessment.id));
+        // See CommentThread: the scope clause is what makes the query provably
+        // inside this caller's read grant, not just a narrower result set.
+        const q = query(
+          collection(db, 'corrective_action_logs'),
+          where('assessmentId', '==', assessment.id),
+          ...scopeClauses(scope)
+        );
         const snapshot = await getDocs(q);
         const items = [];
         snapshot.forEach(doc => items.push({ id: doc.id, ...doc.data() }));
@@ -41,7 +48,7 @@ export default function CorrectiveActionModal({ assessment, locationId, assessme
     };
 
     loadLogs();
-  }, [assessment.id]);
+  }, [assessment.id, scope?.field, scope?.value]);
 
   const handlePost = async (e) => {
     e.preventDefault();
@@ -54,6 +61,8 @@ export default function CorrectiveActionModal({ assessment, locationId, assessme
       const payload = {
         assessmentId: assessment.id,
         locationId,
+        areaId: areaId ?? null,
+        regionId: regionId ?? null,
         assessmentType,
         quarter,
         sectionKey,

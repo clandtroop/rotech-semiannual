@@ -9,6 +9,7 @@ import InviteUserModal from '../InviteUserModal';
 import RejectAssessmentModal from '../RejectAssessmentModal';
 import CorrectiveActionModal from '../CorrectiveActionModal';
 import { getFlaggedSections } from '../../utils/correctiveActions';
+import { loadProfile, scopeFor, scopeClauses } from '../../lib/scope';
 
 const QUARTERS = ['Q1-Q2 2026', 'Q3-Q4 2026'];
 const INVITE_ROLES = ['locationManager', 'areaManager'];
@@ -29,6 +30,8 @@ export default function RegionAdminDash() {
   const [rejectTarget, setRejectTarget] = useState(null);
   const [correctiveTarget, setCorrectiveTarget] = useState(null);
   const [invites, setInvites] = useState([]);
+  const [scope, setScope] = useState(null);
+  const [profile, setProfile] = useState(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [quarter, setQuarter] = useState('Q1-Q2 2026');
   const [loading, setLoading] = useState(true);
@@ -44,8 +47,10 @@ export default function RegionAdminDash() {
 
   // Get all submissions for every quarter, bucketed - powers both the current-quarter
   // tables and the Trend Analysis comparison below.
-  const fetchSubmissionsByQuarter = async () => {
-    const subSnapshot = await getDocs(collection(db, 'assessments'));
+  const fetchSubmissionsByQuarter = async (userScope) => {
+    const subSnapshot = await getDocs(
+      query(collection(db, 'assessments'), ...scopeClauses(userScope))
+    );
     const byQuarter = {};
     subSnapshot.forEach(doc => {
       const data = doc.data();
@@ -67,8 +72,10 @@ export default function RegionAdminDash() {
         setUser(currentUser);
 
         // Get user profile
-        const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
-        const userData = userDoc.data();
+        const userData = await loadProfile(currentUser.uid);
+        const userScope = scopeFor(userData);
+        setScope(userScope);
+        setProfile(userData);
 
         if (!userData || !userData.regionId) {
           alert('Region not assigned. Contact your administrator.');
@@ -106,10 +113,12 @@ export default function RegionAdminDash() {
         });
         setAreaManagers(ams);
 
-        setSubmissionsByQuarter(await fetchSubmissionsByQuarter());
+        setSubmissionsByQuarter(await fetchSubmissionsByQuarter(userScope));
 
-        // Get comment counts for every submission
-        const commentsSnapshot = await getDocs(collection(db, 'submission_comments'));
+        // Get comment counts for every submission in this region
+        const commentsSnapshot = await getDocs(
+          query(collection(db, 'submission_comments'), ...scopeClauses(userScope))
+        );
         const counts = {};
         commentsSnapshot.forEach(doc => {
           const { assessmentId } = doc.data();
@@ -295,7 +304,7 @@ export default function RegionAdminDash() {
 
   const handleRejected = async () => {
     setRejectTarget(null);
-    setSubmissionsByQuarter(await fetchSubmissionsByQuarter());
+    setSubmissionsByQuarter(await fetchSubmissionsByQuarter(scope));
   };
 
   const renderAssessmentCell = (sub, location) => {
@@ -310,7 +319,7 @@ export default function RegionAdminDash() {
       <div className="flex flex-col items-center gap-1">
         <button
           type="button"
-          onClick={() => setActiveThread({ assessmentId: sub.id, locationId: location.id, assessmentType: sub.assessmentType, locationName: location.name })}
+          onClick={() => setActiveThread({ assessmentId: sub.id, locationId: location.id, areaId: location.areaId ?? null, assessmentType: sub.assessmentType, locationName: location.name })}
           className={`inline-block px-2 py-1 rounded text-xs font-semibold ${
             rejected ? 'bg-red-100 text-red-700 hover:bg-red-200' : 'bg-green-100 text-green-700 hover:bg-green-200'
           }`}
@@ -320,7 +329,7 @@ export default function RegionAdminDash() {
         {flagged.length > 0 && (
           <button
             type="button"
-            onClick={() => setCorrectiveTarget({ assessment: sub, locationId: location.id, assessmentType: sub.assessmentType, locationName: location.name })}
+            onClick={() => setCorrectiveTarget({ assessment: sub, locationId: location.id, areaId: location.areaId ?? null, assessmentType: sub.assessmentType, locationName: location.name })}
             className="text-xs text-yellow-700 font-semibold hover:underline"
           >
             ⚠ {flagged.length} CA
@@ -329,7 +338,7 @@ export default function RegionAdminDash() {
         {!rejected && (
           <button
             type="button"
-            onClick={() => setRejectTarget({ assessment: sub, locationId: location.id, assessmentType: sub.assessmentType, locationName: location.name })}
+            onClick={() => setRejectTarget({ assessment: sub, locationId: location.id, areaId: location.areaId ?? null, assessmentType: sub.assessmentType, locationName: location.name })}
             className="text-xs text-red-600 hover:underline"
           >
             Reject
@@ -640,6 +649,9 @@ export default function RegionAdminDash() {
         <CommentThread
           assessmentId={activeThread.assessmentId}
           locationId={activeThread.locationId}
+          areaId={activeThread.areaId ?? null}
+          regionId={profile?.regionId}
+          scope={scope}
           assessmentType={activeThread.assessmentType}
           quarter={quarter}
           locationName={activeThread.locationName}
@@ -654,6 +666,8 @@ export default function RegionAdminDash() {
         <RejectAssessmentModal
           assessment={rejectTarget.assessment}
           locationId={rejectTarget.locationId}
+          areaId={rejectTarget.areaId ?? null}
+          regionId={profile?.regionId}
           assessmentType={rejectTarget.assessmentType}
           quarter={quarter}
           locationName={rejectTarget.locationName}
@@ -668,6 +682,9 @@ export default function RegionAdminDash() {
         <CorrectiveActionModal
           assessment={correctiveTarget.assessment}
           locationId={correctiveTarget.locationId}
+          areaId={correctiveTarget.areaId ?? null}
+          regionId={profile?.regionId}
+          scope={scope}
           assessmentType={correctiveTarget.assessmentType}
           quarter={quarter}
           locationName={correctiveTarget.locationName}

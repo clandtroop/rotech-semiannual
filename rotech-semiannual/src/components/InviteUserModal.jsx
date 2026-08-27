@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { db } from '../lib/firebase';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
 
 const ROLE_LABELS = {
   locationManager: 'Location Manager',
@@ -9,7 +9,13 @@ const ROLE_LABELS = {
   accreditationSpecialist: 'Accreditation Specialist',
 };
 
-const INVITE_BASE_URL = `${typeof window !== 'undefined' ? window.location.origin : ''}/rotech-semiannual/accept-invite`;
+const INVITE_BASE_URL = `${typeof window !== 'undefined' ? window.location.origin : ''}${import.meta.env.BASE_URL}accept-invite`;
+
+// Invite links used to be valid forever, so one forwarded or archived email
+// stayed an account-creation capability indefinitely. firestore.rules enforces
+// this same window server-side (it rejects any invite whose expiresAt is more
+// than 15 days out, and refuses to accept an expired one).
+const INVITE_TTL_DAYS = 14;
 
 export default function InviteUserModal({
   inviterUid,
@@ -73,6 +79,7 @@ export default function InviteUserModal({
         invitedByRole: inviterRole,
         status: 'pending',
         createdAt: serverTimestamp(),
+        expiresAt: Timestamp.fromDate(new Date(Date.now() + INVITE_TTL_DAYS * 24 * 60 * 60 * 1000)),
         acceptedAt: null,
       };
       await setDoc(doc(db, 'invites', token), payload);

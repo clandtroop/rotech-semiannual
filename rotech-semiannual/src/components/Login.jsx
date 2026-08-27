@@ -180,7 +180,7 @@ export default function Login() {
 
         <div className="mt-4 text-center">
           <a
-            href="/rotech-semiannual/sop.html"
+            href={`${import.meta.env.BASE_URL}sop.html`}
             target="_blank"
             rel="noopener noreferrer"
             className="text-sm text-blue-700 hover:text-blue-900 hover:underline font-medium"

@@ -6,10 +6,13 @@ import { useNavigate } from 'react-router-dom';
 import CommentThread from '../CommentThread';
 import CorrectiveActionModal from '../CorrectiveActionModal';
 import { getFlaggedSections } from '../../utils/correctiveActions';
+import { loadProfile, scopeFor, scopeClauses } from '../../lib/scope';
 
 export default function AreaManagerDash() {
   const [user, setUser] = useState(null);
   const [areaData, setAreaData] = useState(null);
+  const [scope, setScope] = useState(null);
+  const [profile, setProfile] = useState(null);
   const [locations, setLocations] = useState([]);
   const [submissions, setSubmissions] = useState({});
   const [commentCounts, setCommentCounts] = useState({});
@@ -31,8 +34,10 @@ export default function AreaManagerDash() {
         setUser(currentUser);
 
         // Get user profile
-        const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
-        const userData = userDoc.data();
+        const userData = await loadProfile(currentUser.uid);
+        const userScope = scopeFor(userData);
+        setScope(userScope);
+        setProfile(userData);
 
         if (!userData || !userData.areaId) {
           alert('Area not assigned. Contact your administrator.');
@@ -59,6 +64,7 @@ export default function AreaManagerDash() {
         // Get submissions for all locations in this area for this quarter
         const subQuery = query(
           collection(db, 'assessments'),
+          ...scopeClauses(userScope),
           where('quarter', '==', quarter)
         );
         const subSnapshot = await getDocs(subQuery);
@@ -73,6 +79,7 @@ export default function AreaManagerDash() {
         // Get comment counts for this quarter's submissions
         const commentsQuery = query(
           collection(db, 'submission_comments'),
+          ...scopeClauses(userScope),
           where('quarter', '==', quarter)
         );
         const commentsSnapshot = await getDocs(commentsQuery);
@@ -158,7 +165,7 @@ export default function AreaManagerDash() {
       <div className="flex flex-col items-center gap-1">
         <button
           type="button"
-          onClick={() => setActiveThread({ assessmentId: sub.id, locationId: location.id, assessmentType: sub.assessmentType, locationName: location.name })}
+          onClick={() => setActiveThread({ assessmentId: sub.id, locationId: location.id, areaId: location.areaId ?? null, assessmentType: sub.assessmentType, locationName: location.name })}
           className={`inline-block px-2 py-1 rounded text-xs font-semibold ${
             rejected ? 'bg-red-100 text-red-700 hover:bg-red-200' : 'bg-green-100 text-green-700 hover:bg-green-200'
           }`}
@@ -168,7 +175,7 @@ export default function AreaManagerDash() {
         {flagged.length > 0 && (
           <button
             type="button"
-            onClick={() => setCorrectiveTarget({ assessment: sub, locationId: location.id, assessmentType: sub.assessmentType, locationName: location.name })}
+            onClick={() => setCorrectiveTarget({ assessment: sub, locationId: location.id, areaId: location.areaId ?? null, assessmentType: sub.assessmentType, locationName: location.name })}
             className="text-xs text-yellow-700 font-semibold hover:underline"
           >
             ⚠ {flagged.length} CA
@@ -298,6 +305,9 @@ export default function AreaManagerDash() {
         <CommentThread
           assessmentId={activeThread.assessmentId}
           locationId={activeThread.locationId}
+          areaId={profile?.areaId}
+          regionId={profile?.regionId}
+          scope={scope}
           assessmentType={activeThread.assessmentType}
           quarter={quarter}
           locationName={activeThread.locationName}
@@ -312,6 +322,9 @@ export default function AreaManagerDash() {
         <CorrectiveActionModal
           assessment={correctiveTarget.assessment}
           locationId={correctiveTarget.locationId}
+          areaId={profile?.areaId}
+          regionId={profile?.regionId}
+          scope={scope}
           assessmentType={correctiveTarget.assessmentType}
           quarter={quarter}
           locationName={correctiveTarget.locationName}
